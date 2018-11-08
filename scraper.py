@@ -26,18 +26,26 @@ class TransitAPI(object):
 
 if __name__=='__main__':
     api = TransitAPI(API_KEY)
-    
+
     dynamodb = boto3.resource('dynamodb')
     table = dynamodb.Table('VehicleMonitoring')
-    last_query_time = datetime.now() - timedelta(minutes=1)
-    
+
+    wait_secs = 60
+    trip_thresh = 0.9
+    last_query_time = datetime.now() - timedelta(seconds=wait_secs)
+    last_trip_count = 0
+    low_trip_count = False
+
     while True:
-        if datetime.now() > (last_query_time + timedelta(minutes=1)):
+        if datetime.now() > (last_query_time + timedelta(seconds=wait_secs) or low_trip_count):
             last_query_time = datetime.now()
+
             response = api.get_vehicle_predictions( "SF" )
             trips = response['Siri']['ServiceDelivery']['VehicleMonitoringDelivery']['VehicleActivity']
-            
-            print('{} trips found at {}'.format(len(trips), last_query_time))
+            last_trip_count = len(trips)
+
+            print('{} trips found at {}'.format(last_trip_count, last_query_time))
+
             with table.batch_writer() as batch:
                 for trip in trips:
                     trip['UUID'] = str(uuid.uuid4())
@@ -46,5 +54,12 @@ if __name__=='__main__':
                     except Exception:
                         traceback.print_exc(file=sys.stdout)
                         continue
+
+            if len(trips) < last_trip_count * trip_thresh:
+                print('Low trip count, retrying...')
+                low_trip_count = True
+            else:
+                low_trip_count = False
+                
         else:
             time.sleep(1.0)
