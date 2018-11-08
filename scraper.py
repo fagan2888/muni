@@ -38,12 +38,13 @@ if __name__=='__main__':
             trips = response['Siri']['ServiceDelivery']['VehicleMonitoringDelivery']['VehicleActivity']
             
             print('{} trips found at {}'.format(len(trips), last_query_time))
-            for trip in trips:
-                trip['UUID'] = str(uuid.uuid4())
-                try:
-                    table.put_item(Item=trip)
-                except Exception:
-                    traceback.print_exc(file=sys.stdout)
-                    continue
+            with table.batch_writer() as batch:
+                for trip in trips:
+                    trip['UUID'] = str(uuid.uuid4())
+                    try:
+                        batch.put_item(Item=trip)
+                    except Exception:
+                        traceback.print_exc(file=sys.stdout)
+                        continue
         else:
             time.sleep(1.0)
