@@ -117,7 +117,8 @@ if __name__=='__main__':
                     low_trip_count = False
 
                 last_trip_count = len(trips)
-            except:
+            except Exception as e:
+                print(e)
                 print('Something failed, retrying...')
                 time.sleep(1.0)
                 continue
