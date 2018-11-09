@@ -42,9 +42,8 @@ if __name__=='__main__':
 
             response = api.get_vehicle_predictions( "SF" )
             trips = response['Siri']['ServiceDelivery']['VehicleMonitoringDelivery']['VehicleActivity']
-            last_trip_count = len(trips)
 
-            print('{} trips found at {}'.format(last_trip_count, last_query_time))
+            print('{} trips found at {}'.format(len(trips), last_query_time))
 
             with table.batch_writer() as batch:
                 for trip in trips:
@@ -61,5 +60,7 @@ if __name__=='__main__':
             else:
                 low_trip_count = False
                 
+            last_trip_count = len(trips)
+
         else:
             time.sleep(1.0)
