@@ -76,7 +76,7 @@ if __name__=='__main__':
     # Open a cursor to perform database operations
     cur = conn.cursor()
 
-    wait_secs = 60
+    wait_secs = 10
     trip_thresh = 0.9
     last_query_time = datetime.now() - timedelta(seconds=wait_secs)
     last_trip_count = 0
@@ -84,38 +84,42 @@ if __name__=='__main__':
 
     while True:
         if datetime.now() > (last_query_time + timedelta(seconds=wait_secs) or low_trip_count):
-            last_query_time = datetime.now()
+            try:
+                last_query_time = datetime.now()
 
-            response = api.get_vehicle_predictions( "SF" )
-            trips = response['Siri']['ServiceDelivery']['VehicleMonitoringDelivery']['VehicleActivity']
+                response = api.get_vehicle_predictions( "SF" )
+                trips = response['Siri']['ServiceDelivery']['VehicleMonitoringDelivery']['VehicleActivity']
 
-            print('{} trips found at {}'.format(len(trips), last_query_time))
+                print('{} trips found at {}'.format(len(trips), last_query_time))
 
-            results = []
-            for trip in trips:
-                results.append(trip_parser(trip))
-            with open("output.csv", "w") as f:
-                writer = csv.writer(f, delimiter=',', quotechar='"')
-                writer.writerows(results)
+                results = []
+                for trip in trips:
+                    results.append(trip_parser(trip))
+                with open("output.csv", "w") as f:
+                    writer = csv.writer(f, delimiter=',', quotechar='"')
+                    writer.writerows(results)
 
-            s3.meta.client.upload_file('output.csv', 'jonobate-bucket', 'output.csv')
+                s3.meta.client.upload_file('output.csv', 'jonobate-bucket', 'output.csv')
 
-            # Execute a command
-            cur.execute('''copy vehicle_monitoring
-            from 's3://jonobate-bucket/output.csv'
-            iam_role 'arn:aws:iam::614550856824:role/AWS-admin'
-            delimiter ',' ''')
+                # Execute a command
+                cur.execute('''copy vehicle_monitoring
+                from 's3://jonobate-bucket/output.csv'
+                iam_role 'arn:aws:iam::614550856824:role/AWS-admin'
+                delimiter ',' ''')
 
-            # Make the changes to the database persistent
-            conn.commit()
+                # Make the changes to the database persistent
+                conn.commit()
 
-            if len(trips) < last_trip_count * trip_thresh:
-                print('Low trip count, retrying...')
-                low_trip_count = True
-            else:
-                low_trip_count = False
+                if len(trips) < last_trip_count * trip_thresh:
+                    print('Low trip count, retrying...')
+                    low_trip_count = True
+                else:
+                    low_trip_count = False
 
-            last_trip_count = len(trips)
-
+                last_trip_count = len(trips)
+            except:
+                print('Something failed, retrying...')
+                time.sleep(1.0)
+                continue
         else:
             time.sleep(1.0)
