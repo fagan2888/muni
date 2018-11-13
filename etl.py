@@ -151,8 +151,7 @@ def stops_to_durations(df):
 
     return df_final
 
-if __name__ == '__main__':
-    #Load credentials
+def connect_to_redshift():
     with open('credentials.json') as json_data:
         credentials = json.load(json_data)
 
@@ -163,21 +162,29 @@ if __name__ == '__main__':
                         user = credentials['user'],
                         password = credentials['password'])
 
-    #Connect to s3
+def connect_to_s3():
+    with open('credentials.json') as json_data:
+        credentials = json.load(json_data)
+
     pr.connect_to_s3(aws_access_key_id = credentials['aws_access_key_id'],
                 aws_secret_access_key = credentials['aws_secret_access_key'],
                 bucket = 'jonobate-bucket')
 
+if __name__ == '__main__':
     #Get raw data from processing
+    connect_to_redshift()
     print('Getting vehicle_monitoring data from Redshift...')
     df = pr.redshift_to_pandas("""select * from vehicle_monitoring
                                 where data_frame_ref not in (select distinct data_frame_ref from stop_events)
                                 and data_frame_ref < trunc(convert_timezone('US/Pacific', GETDATE()));""")
+    pr.close_up_shop()
 
     #Parse into stop events
     df = raw_to_stops(df)
 
     #Write results to stop_events
+    connect_to_s3()
+    connect_to_redshift()
     print('Writing stop_events data to Redshift...')
     pr.pandas_to_redshift(data_frame = df,
                         redshift_table_name = 'stop_events',
@@ -189,11 +196,17 @@ if __name__ == '__main__':
                                 where data_frame_ref not in (select distinct data_frame_ref from trip_durations)
                                 and data_frame_ref < trunc(convert_timezone('US/Pacific', GETDATE()));""")
 
+    pr.close_up_shop()
+
     #Parse into journey durations
     df = stops_to_durations(df)
 
     #Write results to stop_events
+    connect_to_s3()
+    connect_to_redshift()
     print('Writing trip_durations data to Redshift...')
     pr.pandas_to_redshift(data_frame = df,
                         redshift_table_name = 'trip_durations',
                         append = True)
+
+    pr.close_up_shop()
