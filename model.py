@@ -18,7 +18,10 @@ pr.connect_to_redshift(dbname = 'muni',
                     password = credentials['password'])
 
 df = pr.redshift_to_pandas("select * from vehicle_monitoring")
+
+df.to_csv('data/vehicle_monitoring.csv', index=False)
 '''
+
 df = pd.read_csv('data/vehicle_monitoring.csv')
 
 # Params to pass to the GridSearchCV
