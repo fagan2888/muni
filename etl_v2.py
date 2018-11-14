@@ -15,7 +15,8 @@ def raw_to_stops():
     df = pr.redshift_to_pandas("""select data_frame_ref
                                 from vehicle_monitoring
                                 where data_frame_ref not in (select distinct data_frame_ref from stop_events)
-                                and data_frame_ref < trunc(convert_timezone('US/Pacific', GETDATE()))""")
+                                and data_frame_ref < trunc(convert_timezone('US/Pacific', GETDATE()))
+                                group by data_frame_ref""")
 
     n_days = df.shape[0]
 
@@ -49,7 +50,7 @@ def raw_to_stops():
             df_next['join_index'] = df_next['join_index'].astype(int) - 1
 
             #Join data to offset data
-            df_stops = df.merge(df_next, on='join_index')
+            df_stops = df_cur.merge(df_next, on='join_index')
 
             #Filter to stop events
             df_stops = df_stops[(df_stops['data_frame_ref']==df_stops['data_frame_ref_next'])
