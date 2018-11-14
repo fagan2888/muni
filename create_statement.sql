@@ -24,7 +24,7 @@ create table stop_events (data_frame_ref timestamp,
 				trip_id int,
 				stop_id int,
 				stop_time timestamp,
-				stop_time_unix int)
+				stop_time_unix float)
                 distkey(data_frame_ref)
 				compound sortkey(data_frame_ref, trip_id);
 
@@ -34,10 +34,10 @@ create table trip_durations (data_frame_ref timestamp,
 				trip_id int,
 				departure_stop_id int,
 				departure_time timestamp,
-				departure_time_unix int,
+				departure_time_unix float,
 				arrival_stop_id int,
 				arrival_time timestamp,
-				arrival_time_unix int,
-				trip_duration int)
+				arrival_time_unix float,
+				trip_duration float)
                 distkey(data_frame_ref)
 				compound sortkey(data_frame_ref, trip_id);
