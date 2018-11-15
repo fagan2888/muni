@@ -19,15 +19,13 @@ create table vehicle_monitoring (line_ref varchar(32),
 				compound sortkey(line_ref, recorded_time);
 
 
-
 create table stop_events (data_frame_ref timestamp,
 				trip_id int,
 				stop_id int,
 				stop_time timestamp,
 				stop_time_unix float)
-                distkey(data_frame_ref)
+        distkey(data_frame_ref)
 				compound sortkey(data_frame_ref, trip_id);
-
 
 
 create table trip_durations (data_frame_ref timestamp,
@@ -38,6 +36,19 @@ create table trip_durations (data_frame_ref timestamp,
 				arrival_stop_id int,
 				arrival_time timestamp,
 				arrival_time_unix float,
-				trip_duration float)
-                distkey(data_frame_ref)
+				trip_duration float,
+				departure_time_hour timestamp)
+        distkey(data_frame_ref)
 				compound sortkey(data_frame_ref, trip_id);
+
+				create table distributions (data_frame_ref timestamp,
+					departure_time_hour timestamp,
+					departure_stop_id int,
+					arrival_stop_id int,
+					shape_a float,
+					shape_c float,
+					loc float,
+					scale float,
+					sse float)
+				  distkey(data_frame_ref)
+					compound sortkey(data_frame_ref, departure_time_hour);
