@@ -171,7 +171,7 @@ def durs_to_dists():
     df = pr.redshift_to_pandas("""select a.* from
         (select data_frame_ref, departure_time_hour from trip_durations group by data_frame_ref, departure_time_hour) a
         left join
-        (select data_frame_ref, departure_time_hour from distributions group by data_frame_ref, departure_time_hour) b
+        (select data_frame_ref, departure_time_hour from distributions_gamma group by data_frame_ref, departure_time_hour) b
         on a.data_frame_ref = b.data_frame_ref
         	and a.departure_time_hour = b.departure_time_hour
         where b.data_frame_ref is null
@@ -235,7 +235,7 @@ def durs_to_dists():
 
                 try:
                     # fit dist to data
-                    params = st.gengamma.fit(data)
+                    params = st.gamma.fit(data, floc=True)
 
                     y, x = np.histogram(data)
                     x = (x + np.roll(x, -1))[:-1] / 2.0
@@ -246,10 +246,10 @@ def durs_to_dists():
                     scale = params[-1]
 
                     # Calculate fitted PDF and error with fit in distribution
-                    pdf = st.gengamma.pdf(x, loc=loc, scale=scale, *arg)
+                    pdf = st.gamma.pdf(x, loc=loc, scale=scale, *arg)
                     sse = np.sum(np.power(y - pdf, 2.0))
 
-                    results.append([data_frame_ref, departure_time_hour, departure_stop_id, arrival_stop_id, arg[0], arg[1], loc, scale, sse])
+                    results.append([data_frame_ref, departure_time_hour, departure_stop_id, arrival_stop_id, arg[0], scale, sse])
                 except Exception as e:
                     print(e)
                     continue
@@ -258,9 +258,9 @@ def durs_to_dists():
             print("No distributions for data_frame_ref {}, departure_time_hour {}, skipping...".format(data_frame_ref, departure_time_hour))
         else:
             print ("Writing distributions to Redshift...")
-            df_results = pd.DataFrame(results, columns=['data_frame_ref', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id', 'shape_a', 'shape_c', 'loc', 'scale', 'sse'])
+            df_results = pd.DataFrame(results, columns=['data_frame_ref', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id', 'shape', 'scale', 'sse'])
             pr.pandas_to_redshift(data_frame = df_results,
-                                redshift_table_name = 'distributions',
+                                redshift_table_name = 'distributions_gamma',
                                 append = True)
 
     pr.close_up_shop()
