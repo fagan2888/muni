@@ -394,4 +394,6 @@ def connect_to_s3():
 
 
 if __name__ == '__main__':
+    stops_to_durations()
+    raw_to_stops()
     durs_to_dists()
