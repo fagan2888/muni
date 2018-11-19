@@ -5,63 +5,39 @@ from sklearn.model_selection import GridSearchCV
 import pickle
 import data_processing
 import json
+import pandas_redshift as pr
+
+REFRESH_DATA = False
 
 #Load data
-'''
-with open('credentials.json') as json_data:
-    credentials = json.load(json_data)
+if REFRESH_DATA:
+    df_dists = data_processing.get_distributions()
+    df_dists.to_csv('data/distributions_gamma.csv', index=False)
 
-pr.connect_to_redshift(dbname = 'muni',
-                    host = 'jonobate.c9xvjgh0xspr.us-east-1.redshift.amazonaws.com',
-                    port = '5439',
-                    user = credentials['user'],
-                    password = credentials['password'])
+else:
+    df_dists = pd.read_csv('data/distributions_gamma.csv')
+    df_dists['data_frame_ref'] = pd.to_datetime(df_dists['data_frame_ref'])
+    df_dists['departure_time_hour'] = pd.to_datetime(df_dists['departure_time_hour'])
+    df_dists['local_departure_time_hour'] = pd.to_datetime(df_dists['local_departure_time_hour'])
 
-df = pr.redshift_to_pandas("select * from vehicle_monitoring")
+#Drop NaNs
+df_dists = df_dists.dropna()
 
-df.to_csv('data/vehicle_monitoring.csv', index=False)
-'''
+#Generate Target
+df_dists['mean'] = df_dists['shape'] * df_dists['scale']
 
-df = pd.read_csv('data/vehicle_monitoring.csv')
+#Split into X and y
+y_mean = df_dists['mean']
+y_shape = df_dists['shape']
+X_mean = df_dists.drop(columns=['mean', 'shape', 'scale', 'sse'])
 
-# Params to pass to the GridSearchCV
-param_grid = {
-    'loss': ['log'],
-    'penalty': ['elasticnet'],
-    'alpha': [10 ** x for x in range(-6, 1)],
-    'l1_ratio': [0, 0.05, 0.1, 0.2, 0.5, 0.8, 0.9, 0.95, 1],
-}
+#Create Features
+X_mean = data_processing.create_features(X_mean)
 
+clf_mean = data_processing.grid_search(X_mean, y_mean, 'clf_mean')
 
-# Create the pipeline to GridSearch over
-pipeline = Pipeline(steps=[
-                ('raw_to_stops',data_processing.RawToStops()),
-                ('stops_to_durations',data_processing.StopsToDurations()),
-                ('durations_to_distributions',data_processing.DurationsToDistributions()),
-                ('create_features',data_processing.CreateFeatures()),
-                ('sgd', SGDRegressor())])
+#Predict means from clf_mean model and add back into training data
+y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])
+X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
 
-
-# Create the GridSearch model
-model = GridSearchCV(pipeline,
-                   param_grid,
-                   cv=5,
-                   scoring=None
-                   n_jobs=-1,
-                   verbose=3)
-
-
-# Fit the GridSearch model
-model.fit(df.drop('fraud', axis=1), df['fraud'])
-
-# Save the best model to a pickle file
-pickle.dump(model.best_estimator_, open('best_model_2.p', 'wb'))
-
-print('The ROC AUC score was: {}'.format(model.best_score_))
-print()
-print('The best parameters were:')
-print(model.best_params_)
-
-print(pd.Series(model.best_estimator_.feature_imporances_, index=model.best_params_['keep_columns__keep_columns']).sort_values())
-
-pr.close_up_shop()
+clf_shape = data_processing.grid_search(X_shape, y_shape, 'clf_shape')

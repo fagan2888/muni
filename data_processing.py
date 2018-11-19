@@ -1,26 +1,127 @@
 import json
 import numpy as np
 import pandas as pd
+import pandas_redshift as pr
+import pickle
+from os import listdir
+from os.path import isfile, join
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.model_selection import GridSearchCV
+from sklearn.ensemble import RandomForestRegressor
+
+def get_distributions():
+    with open('credentials.json') as json_data:
+        credentials = json.load(json_data)
+
+    pr.connect_to_redshift(dbname = 'muni',
+                        host = 'jonobate.c9xvjgh0xspr.us-east-1.redshift.amazonaws.com',
+                        port = '5439',
+                        user = credentials['user'],
+                        password = credentials['password'])
+
+    df_dists = pr.redshift_to_pandas("""select *,
+                                    convert_timezone('US/Pacific', departure_time_hour) as local_departure_time_hour
+                                     from distributions_gamma""")
+    pr.close_up_shop()
+
+
+def load_gtfs_data(path='google_transit'):
+    #Returns dictionary of dataframes containing GTFS data
+    files = [f for f in listdir(path) if isfile(join(path, f))]
+    df = {}
+    for file in files:
+        print("Loading {}".format(file[:-4]))
+        try:
+            df[file[:-4]] = pd.read_csv(path + '/' + file)
+        except:
+            print("{} failed to load!".format(file[:-4]))
+            continue
+    return df
+
+
+def create_features(df_dists):
+
+    #Load GTFS data
+    df_gtfs = load_gtfs_data()
+
+    #Generate local day of week and hour features
+    df_dists['local_dow'] = df_dists['local_departure_time_hour'].dt.dayofweek
+    df_dists['local_hour'] = df_dists['local_departure_time_hour'].dt.hour
+
+    #Append stop metadata
+    df_dep = df_gtfs['stops'].copy()
+    df_dep = df_dep.add_suffix('_dep')
+
+    df_arr = df_gtfs['stops'].copy()
+    df_arr = df_arr.add_suffix('_arr')
+
+    df_dists = df_dists.merge(df_dep, left_on='departure_stop_id', right_on='stop_code_dep')
+    df_dists = df_dists.merge(df_arr, left_on='arrival_stop_id', right_on='stop_code_arr')
+
+    #Drop null columns, drop string/datetime columns
+    df_dists = df_dists.dropna(axis='columns', how='all')
+    df_dists = df_dists.drop(df_dists.select_dtypes(['object', 'datetime64']), axis=1)
+
+    #Calculate stop distances
+    df_dists['stop_lat_dist'] = (df_dists['stop_lat_dep'] - df_dists['stop_lat_arr'])
+    df_dists['stop_lon_dist'] = (df_dists['stop_lon_dep'] - df_dists['stop_lon_arr'])
+    df_dists['stop_dist'] = np.sqrt((df_dists['stop_lat_dist']**2) + (df_dists['stop_lon_dist']**2))
+
+    #Reset index
+    df_dists = df_dists.reset_index(drop=True)
+    return df_dists
+
+
+def grid_search(X, y, name):
+
+    # Params to pass to the GridSearchCV
+    param_grid = {
+        'n_estimators': [200, 500],
+        'max_features': ['auto', 'sqrt', 'log2'],
+        'max_depth' : [4,5,6,7,8],
+        'criterion' :['mse', 'mae']
+    }
+
+    model = RandomForestRegressor()
+
+    # Create the GridSearch model
+    clf = GridSearchCV(model, param_grid, cv=5, verbose=10, n_jobs=-1)
+
+    # Fit the GridSearch model
+    clf.fit(X, y)
+
+    print("{} OOB score: {}".format(name, clf.best_estimator_.oob_score_))
+    print()
+    print(pd.DataFrame(clf.feature_importances_,
+            index = X.columns,
+            columns=['importance']).sort_values('importance',
+                                                ascending=False))
+    print()
+
+    # Save the best model to a pickle file
+    pickle.dump(clf.best_estimator_, open('{}.pickle'.format(name), 'wb'))
+
+    return clf
+
 
 class RawToStops(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y):
         return self
 
-    def transform(self,X):
+    def raw_to_stops(self,X):
         df = X
-        
+
         #Load stop data
         df_stop_times = pd.read_csv('google_transit/stop_times.txt')
-        
-        #Convert datetimes 
+
+        #Convert datetimes
         df['recorded_time'] = pd.to_datetime(df['recorded_time'])
         df['valid_until_time'] = pd.to_datetime(df['valid_until_time'])
         df['data_frame_ref'] = pd.to_datetime(df['data_frame_ref'])
         df['expected_arrival_time'] = pd.to_datetime(df['expected_arrival_time'])
         df['expected_departure_time'] = pd.to_datetime(df['expected_departure_time'])
-        
+
         #Sort values, reset index
         df = df.sort_values(['data_frame_ref', 'journey_ref', 'recorded_time'])
         df = df.reset_index(drop=True)
@@ -42,7 +143,7 @@ class RawToStops(BaseEstimator, TransformerMixin):
 
         #Add in stop time column
         df_stops['stop_time'] = df_stops['recorded_time'] + (df_stops['recorded_time_next'] - df_stops['recorded_time']) / 2
-            
+
         #Drop uneeded columns
         df_stops = df_stops[['data_frame_ref', 'journey_ref', 'stop_point_ref', 'stop_time']]
 
@@ -93,8 +194,7 @@ class RawToStops(BaseEstimator, TransformerMixin):
 
         return df_final
 
-    
-    
+
 class StopsToDurations(BaseEstimator, TransformerMixin):
 
     def fit(self, X, y):
@@ -102,7 +202,7 @@ class StopsToDurations(BaseEstimator, TransformerMixin):
 
     def transform(self,X):
         df = X
-        
+
         #Create output dataframe
         df_final = pd.DataFrame(columns=['data_frame_ref',
                                          'trip_id',
@@ -153,5 +253,5 @@ class StopsToDurations(BaseEstimator, TransformerMixin):
 
                     #Add to final data frame
                     df_final = pd.concat([df_final, df_today_dep_arr])
-                    
+
         return df_final
