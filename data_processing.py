@@ -6,8 +6,22 @@ import pickle
 from os import listdir
 from os.path import isfile, join
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.ensemble import RandomForestRegressor
+
+def get_raw():
+    with open('credentials.json') as json_data:
+        credentials = json.load(json_data)
+
+    pr.connect_to_redshift(dbname = 'muni',
+                        host = 'jonobate.c9xvjgh0xspr.us-east-1.redshift.amazonaws.com',
+                        port = '5439',
+                        user = credentials['user'],
+                        password = credentials['password'])
+
+    df = pr.redshift_to_pandas("""select * from vehicle_monitoring""")
+    pr.close_up_shop()
+    return df
 
 def get_distributions():
     with open('credentials.json') as json_data:
@@ -19,10 +33,12 @@ def get_distributions():
                         user = credentials['user'],
                         password = credentials['password'])
 
-    df_dists = pr.redshift_to_pandas("""select *,
+    df = pr.redshift_to_pandas("""select *,
                                     convert_timezone('US/Pacific', departure_time_hour) as local_departure_time_hour
                                      from distributions_gamma""")
     pr.close_up_shop()
+
+    return df
 
 
 def load_gtfs_data(path='google_transit'):
@@ -73,23 +89,53 @@ def create_features(df_dists):
 
 
 def grid_search(X, y, name):
-
+    '''
     # Params to pass to the GridSearchCV
     param_grid = {
-        'n_estimators': [200, 500],
+        'n_estimators': [10, 100],
         'max_features': ['auto', 'sqrt', 'log2'],
-        'max_depth' : [4,5,6,7,8],
+        'max_depth' : [None,4,6,8],
         'criterion' :['mse', 'mae']
     }
+    '''
+
+    # Number of trees in random forest
+    n_estimators = [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]
+    # Number of features to consider at every split
+    max_features = ['auto', 'sqrt']
+    # Maximum number of levels in tree
+    max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
+    max_depth.append(None)
+    # Minimum number of samples required to split a node
+    min_samples_split = [2, 5, 10]
+    # Minimum number of samples required at each leaf node
+    min_samples_leaf = [1, 2, 4]
+    # Method of selecting samples for training each tree
+    bootstrap = [True, False]
+    # Create the random grid
+    random_grid = {'n_estimators': n_estimators,
+                   'max_features': max_features,
+                   'max_depth': max_depth,
+                   'min_samples_split': min_samples_split,
+                   'min_samples_leaf': min_samples_leaf,
+                   'bootstrap': bootstrap}
 
     model = RandomForestRegressor()
 
     # Create the GridSearch model
-    clf = GridSearchCV(model, param_grid, cv=5, verbose=10, n_jobs=-1)
+    clf = RandomizedSearchCV(estimator = model,
+                                param_distributions = random_grid,
+                                n_iter = 10,
+                                cv = 3,
+                                verbose=10,
+                                random_state=42,
+                                n_jobs = -1)
 
     # Fit the GridSearch model
     clf.fit(X, y)
 
+    print(clf.best_params_)
+    print()
     print("{} OOB score: {}".format(name, clf.best_estimator_.oob_score_))
     print()
     print(pd.DataFrame(clf.feature_importances_,
@@ -104,154 +150,152 @@ def grid_search(X, y, name):
     return clf
 
 
-class RawToStops(BaseEstimator, TransformerMixin):
+def raw_to_stops(df):
+    #Convert datetimes
+    df['recorded_time'] = pd.to_datetime(df['recorded_time'])
+    df['valid_until_time'] = pd.to_datetime(df['valid_until_time'])
+    df['data_frame_ref'] = pd.to_datetime(df['data_frame_ref'])
+    df['expected_arrival_time'] = pd.to_datetime(df['expected_arrival_time'])
+    df['expected_departure_time'] = pd.to_datetime(df['expected_departure_time'])
 
-    def fit(self, X, y):
-        return self
+    #Sort values, reset index
+    df = df.sort_values(['data_frame_ref', 'journey_ref', 'recorded_time'])
+    df = df.reset_index(drop=True)
+    df['join_index'] = df.index.astype(int)
 
-    def raw_to_stops(self,X):
-        df = X
+    #Create offset dataframe with next poll data
+    df_next = df[['data_frame_ref', 'journey_ref', 'recorded_time', 'stop_point_ref', 'stop_point_name']]
+    df_next = df_next.add_suffix('_next')
+    df_next['join_index'] = df_next.index
+    df_next['join_index'] = df_next['join_index'].astype(int) - 1
 
-        #Load stop data
-        df_stop_times = pd.read_csv('google_transit/stop_times.txt')
+    #Join data to offset data
+    df = df.merge(df_next, on='join_index')
 
-        #Convert datetimes
-        df['recorded_time'] = pd.to_datetime(df['recorded_time'])
-        df['valid_until_time'] = pd.to_datetime(df['valid_until_time'])
-        df['data_frame_ref'] = pd.to_datetime(df['data_frame_ref'])
-        df['expected_arrival_time'] = pd.to_datetime(df['expected_arrival_time'])
-        df['expected_departure_time'] = pd.to_datetime(df['expected_departure_time'])
+    #Filter to stop events
+    df = df[(df['data_frame_ref']==df['data_frame_ref_next'])
+          & (df['journey_ref']==df['journey_ref_next'])
+          & (df['stop_point_ref']!=df['stop_point_ref_next'])]
 
-        #Sort values, reset index
-        df = df.sort_values(['data_frame_ref', 'journey_ref', 'recorded_time'])
-        df = df.reset_index(drop=True)
-        df['join_index'] = df.index.astype(int)
+    #Add in stop time column
+    df['stop_time'] = df['recorded_time'] + (df['recorded_time_next'] - df['recorded_time']) / 2
 
-        #Create offset dataframe
-        df_next = df[['data_frame_ref', 'journey_ref', 'recorded_time', 'stop_point_ref', 'stop_point_name']]
-        df_next = df_next.add_suffix('_next')
-        df_next['join_index'] = df_next.index
-        df_next['join_index'] = df_next['join_index'].astype(int) - 1
+    #Drop uneeded columns
+    df = df[['data_frame_ref', 'journey_ref', 'stop_point_ref', 'stop_time']]
 
-        #Join data to offset data
-        df_stops = df.merge(df_next, on='join_index')
+    #Rename columns to match stop data.
+    df = df.rename(index=str, columns={"journey_ref": "trip_id", "stop_point_ref": "stop_id"})
 
-        #Filter to stop events
-        df_stops = df_stops[(df_stops['data_frame_ref']==df_stops['data_frame_ref_next'])
-              & (df_stops['journey_ref']==df_stops['journey_ref_next'])
-              & (df_stops['stop_point_ref']!=df_stops['stop_point_ref_next'])]
+    #Load stop data
+    df_stop_times = pd.read_csv('google_transit/stop_times.txt')
 
-        #Add in stop time column
-        df_stops['stop_time'] = df_stops['recorded_time'] + (df_stops['recorded_time_next'] - df_stops['recorded_time']) / 2
+    #Fix to deal with the fact that that stop_ids are in a slightly different format
+    df_stop_times['stop_id'] = ('1' + df_stop_times['stop_id'].astype(str)).astype(int)
 
-        #Drop uneeded columns
-        df_stops = df_stops[['data_frame_ref', 'journey_ref', 'stop_point_ref', 'stop_time']]
+    #Create dataframe of unique dates from the actual data
+    df_dates = pd.DataFrame(df['data_frame_ref'].unique(), columns=['data_frame_ref'])
 
-        #Create output dataframe
-        df_final = pd.DataFrame(columns=['data_frame_ref', 'trip_id', 'stop_id', 'stop_time', 'stop_time_unix'])
+    #Cross join with the stop data, to get the stops for all days
+    df_dates['key'] = 1
+    df_stop_times['key'] = 1
+    df_stop_times = df_dates.merge(df_stop_times, how='outer')
+    df_stop_times = df_stop_times.drop('key', axis=1)
 
-        #For each day we have data for...
-        for data_frame_ref in df_stops['data_frame_ref'].unique():
-            print("Processing data_frame_ref {}".format(data_frame_ref))
-            df_stops_today = df_stops[df_stops['data_frame_ref']==data_frame_ref]
+    #Merge dataframes together
+    df = df_stop_times.merge(df, on=['data_frame_ref', 'trip_id', 'stop_id'], how='left')
 
-            #For each trip on that day...
-            for trip_id in df_stops_today['journey_ref'].unique():
-                print(" Processing trip_id {}".format(trip_id))
+    #Create unix time column
+    df['stop_time_unix'] = (df['stop_time'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
 
-                #Get actual data for this trip. Rename columns to match stop data.
-                df_stops_actual = df_stops_today[df_stops_today['journey_ref']==trip_id].rename(index=str, columns={"journey_ref": "trip_id", "stop_point_ref": "stop_id"})
+    #Interpolate timestamps for missing stop events
+    df = df.groupby(['data_frame_ref', 'trip_id']).apply(lambda group: group.interpolate(limit_area='inside'))
 
-                #Get stop data for this trip
-                df_stops_all = df_stop_times[df_stop_times['trip_id'] == trip_id]
+    #Convert back to actual timestamps
+    df['stop_time'] = pd.to_datetime(df['stop_time_unix'], origin='unix', unit='s')
 
-                #Fix to deal with the fact that that stop_ids are in a slightly different format
-                df_stops_all['stop_id'] = ('1' + df_stops_all['stop_id'].astype(str)).astype(int)
+    #Rename arrival_time and departure_time to prevent future conflicts
+    df = df.rename(index=str, columns={"arrival_time": "arrival_time_scheduled", "departure_time": "departure_time_schedule"})
 
-                #Merge dataframes todether
-                df_merged = df_stops_all.merge(df_stops_actual, on=['trip_id', 'stop_id'], how='left')
+    #Drop uneeeded columns
+    df = df[['data_frame_ref', 'trip_id', 'arrival_time_scheduled', 'departure_time_schedule', 'stop_id', 'stop_sequence', 'stop_time', 'stop_time_unix']]
 
-                #Create unix time column
-                df_merged['stop_time_unix'] = (df_merged['stop_time'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+    #Remove NaNs (occurs if we are missing data at the start or end of a journey)
+    df = df.dropna(subset=['stop_time'])
 
-                #Interpolate timestamps for missing stop events
-                df_merged['stop_time_unix'] = df_merged['stop_time_unix'].interpolate(limit_area='inside')
+    #Reset index
+    df = df.reset_index(drop=True)
 
-                #Convert back to actual timestamps
-                df_merged['stop_time'] = pd.to_datetime(df_merged['stop_time_unix'], origin='unix', unit='s')
-
-                #Fill missing data_frame_refs
-                df_merged['data_frame_ref'] = df_merged['data_frame_ref'].fillna(data_frame_ref)
-
-                #Drop uneeeded columns
-                df_merged = df_merged[['data_frame_ref', 'trip_id', 'stop_id','stop_time', 'stop_time_unix']]
-
-                #Remove NaNs (occurs if we are missing data at the start or end of a journey)
-                df_merged = df_merged.dropna(subset=['stop_time'])
-
-                #Add to final data frame
-                df_final = pd.concat([df_final, df_merged])
-
-        return df_final
+    return df
 
 
-class StopsToDurations(BaseEstimator, TransformerMixin):
+def stops_to_durations(df):
+    #Get departure and arrival stop info
+    df = df[['data_frame_ref', 'trip_id', 'stop_id', 'stop_time', 'stop_time_unix']]
+    df_stops_arr = df.copy()
+    df = df.rename(index=str, columns={"stop_id": "departure_stop_id", "stop_time": "departure_time", "stop_time_unix": "departure_time_unix"})
+    df_stops_arr = df_stops_arr.rename(index=str, columns={"stop_id": "arrival_stop_id", "stop_time": "arrival_time", "stop_time_unix": "arrival_time_unix"})
 
-    def fit(self, X, y):
-        return self
+    #Join the two on trip ID and date
+    df = df.merge(df_stops_arr, on=['data_frame_ref', 'trip_id'])
 
-    def transform(self,X):
-        df = X
+    #Thow out any journeys that do not go forwards in time
+    df = df[df['arrival_time_unix'] > df['departure_time_unix']]
 
-        #Create output dataframe
-        df_final = pd.DataFrame(columns=['data_frame_ref',
-                                         'trip_id',
-                                         'departure_stop_id',
-                                         'departure_time',
-                                         'departure_time_unix',
-                                         'arrival_stop_id',
-                                         'arrival_time',
-                                         'arrival_time_unix',
-                                         'trip_duration'])
+    #Add trip duration column
+    df['trip_duration'] = df['arrival_time_unix'] - df['departure_time_unix']
 
-        #For each day we have data for...
-        for data_frame_ref in df['data_frame_ref'].unique():
-            print("Processing data_frame_ref {}".format(data_frame_ref))
-            df_today = df[df['data_frame_ref']==data_frame_ref]
+    return df
 
-            #For all stops that had departures today...
-            for departure_stop_id in df_today['stop_id'].unique():
-                print(" Processing departure stop_id {}".format(departure_stop_id))
+def durations_to_distributions(df):
+    #Add hour and minute columns
+    df['departure_time_hour'] = df['departure_time'].dt.round('H')
+    df['departure_time_minute'] = df['departure_time'].dt.round('min')
 
-                #Get trip IDs that stop at this stop, and the departure times from the departure stop of that journey
-                df_trip_ids = pd.DataFrame(df_today[df_today['stop_id']==departure_stop_id])
-                df_trip_ids = df_trip_ids[['trip_id', 'stop_id', 'stop_time', 'stop_time_unix']]
-                df_trip_ids = df_trip_ids.rename(index=str, columns={"stop_id": "departure_stop_id", "stop_time": "departure_time", "stop_time_unix": "departure_time_unix"})
+    #Get departure and arrival stop info
+    df_stops_dep = pd.DataFrame(df['departure_stop_id'].unique(), columns=['departure_stop_id'])
+    df_stops_dep['key'] = 1
 
-                #Get data for those trip IDs
-                df_today_dep = df_trip_ids.merge(df_today, on='trip_id')
-                df_today_dep = df_today_dep.rename(index=str, columns={"stop_id": "arrival_stop_id", "stop_time": "arrival_time", "stop_time_unix": "arrival_time_unix"})
+    df_stops_arr = pd.DataFrame(df['arrival_stop_id'].unique(), columns=['arrival_stop_id'])
+    df_stops_arr['key'] = 1
 
-                #For all stops that had arrivals from this departure stop...
-                for arrival_stop_id in df_today_dep['arrival_stop_id'].unique():
-                    print("  Processing arrival stop_id {}".format(arrival_stop_id))
+    #Get departure time hours for this dataset
+    df_timestamps = pd.DataFrame(df['departure_time_hour'].unique(), columns=['departure_time_hour'])
+    df_timestamps['key'] = 1
 
-                    #Filter to that stop, but only if arrival time is later than departure time
-                    df_today_dep_arr = df_today_dep[(df_today_dep['arrival_stop_id']==arrival_stop_id) & (df_today_dep['departure_time_unix'] < df_today_dep['arrival_time_unix'])]
-                    df_today_dep_arr['trip_duration'] = df_today_dep_arr['arrival_time_unix'] - df_today_dep_arr['departure_time_unix']
+    #Calculate create minutes array
+    df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
+    df_minutes['key'] = 1
 
-                    #Reorder because it makes me happy...
-                    df_today_dep_arr = df_today_dep_arr[['data_frame_ref',
-                                                         'trip_id',
-                                                         'departure_stop_id',
-                                                         'departure_time',
-                                                         'departure_time_unix',
-                                                         'arrival_stop_id',
-                                                         'arrival_time',
-                                                         'arrival_time_unix',
-                                                         'trip_duration']]
+    #Combine to form base time array
+    df_timestamps = df_timestamps.merge(df_minutes).merge(df_stops_dep).merge(df_stops_arr)
+    df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
+    df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
+    df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
 
-                    #Add to final data frame
-                    df_final = pd.concat([df_final, df_today_dep_arr])
+    #Sort array
+    df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
+    df_timestamps = df_timestamps.reset_index(drop=True)
 
-        return df_final
+    #Join on actual stop data
+    df = df_timestamps.merge(df, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
+
+    df.groupby(['departure_stop_id', 'arrival_stop_id']).count()
+
+    #Backfill so each minute has the data for the next departure
+    df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
+
+    #Test code
+    df[(df['departure_stop_id']==17941) & (df['arrival_stop_id']==16327) & (df['departure_time_minute_unix']>=1541732400)]
+
+    #Add total journey time column
+    df['total_journey_time'] = df['arrival_time_unix'] - df['departure_time_minute_unix']
+
+    #Drop NaNs (occurs at the end of the data set when we don't know when the next bus will come.)
+    df = df.dropna(subset=['total_journey_time'])
+
+    def calc_distribution(x):
+        params = st.gamma.fit(x, floc=True)
+        return pd.DataFrame({'shape': [params[0]], 'scale': [params[-1]]})
+
+    df = df.groupby(['departure_time_hour', 'departure_stop_id', 'arrival_stop_id']).agg({'total_journey_time': calc_distribution}).reset_index()
+    return df
