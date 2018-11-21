@@ -62,14 +62,10 @@ def load_gtfs_data(path='google_transit'):
     return df
 
 
-def create_features(df_dists):
-
-    #Load GTFS data
-    df_gtfs = load_gtfs_data()
-
+def create_features(df, df_gtfs):
     #Generate local day of week and hour features
-    df_dists['local_dow'] = df_dists['local_departure_time_hour'].dt.dayofweek
-    df_dists['local_hour'] = df_dists['local_departure_time_hour'].dt.hour
+    df['dow'] = df['departure_time_hour'].dt.dayofweek
+    df['hour'] = df['departure_time_hour'].dt.hour
 
     #Append stop metadata
     df_dep = df_gtfs['stops'].copy()
@@ -78,34 +74,36 @@ def create_features(df_dists):
     df_arr = df_gtfs['stops'].copy()
     df_arr = df_arr.add_suffix('_arr')
 
-    df_dists = df_dists.merge(df_dep, left_on='departure_stop_id', right_on='stop_code_dep')
-    df_dists = df_dists.merge(df_arr, left_on='arrival_stop_id', right_on='stop_code_arr')
+    df = df.merge(df_dep, left_on='departure_stop_id', right_on='stop_id_dep')
+    df = df.merge(df_arr, left_on='arrival_stop_id', right_on='stop_id_arr')
 
-    #Drop null columns, drop string/datetime columns
-    df_dists = df_dists.dropna(axis='columns', how='all')
-    df_dists = df_dists.drop(df_dists.select_dtypes(['object', 'datetime64']), axis=1)
+    #Add route information. Outer join to help with get_dummies.
+    df_routes = df_gtfs['routes'].copy()
+    df_routes['route_short_name'] = 'Muni-' + df_routes['route_short_name'].astype(str)
+    df = df.merge(df_routes, on='route_short_name', how='outer')
 
     #Calculate stop distances
-    df_dists['stop_lat_dist'] = (df_dists['stop_lat_dep'] - df_dists['stop_lat_arr'])
-    df_dists['stop_lon_dist'] = (df_dists['stop_lon_dep'] - df_dists['stop_lon_arr'])
-    df_dists['stop_dist'] = np.sqrt((df_dists['stop_lat_dist']**2) + (df_dists['stop_lon_dist']**2))
+    df['stop_lat_dist'] = (df['stop_lat_dep'] - df['stop_lat_arr'])
+    df['stop_lon_dist'] = (df['stop_lon_dep'] - df['stop_lon_arr'])
+    df['stop_dist'] = np.sqrt((df['stop_lat_dist']**2) + (df['stop_lon_dist']**2))
+
+    #Create dummies from stop names
+    df = pd.get_dummies(df, columns=['route_short_name'])
+
+    #Drop null columns, drop string/datetime columns
+    df = df.dropna(axis='columns', how='all')
+    df = df.drop(df.select_dtypes(['object', 'datetime64[ns, US/Pacific]']), axis=1)
+
+    #Drop rows with nulls (gets rid of the rows added for dummying purposes)
+    df = df.dropna(axis='rows', how='any')
 
     #Reset index
-    df_dists = df_dists.reset_index(drop=True)
-    return df_dists
+    df = df.reset_index(drop=True)
+    return df
 
 
 def grid_search(X, y, name, sample_flag):
     '''
-    # Params to pass to the GridSearchCV
-    param_grid = {
-        'n_estimators': [10, 100],
-        'max_features': ['auto', 'sqrt', 'log2'],
-        'max_depth' : [None,4,6,8],
-        'criterion' :['mse', 'mae']
-    }
-    '''
-
     # Number of trees in random forest
     n_estimators = [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]
     # Number of features to consider at every split
@@ -137,18 +135,30 @@ def grid_search(X, y, name, sample_flag):
                                 verbose=10,
                                 random_state=42,
                                 n_jobs = -1)
+    '''
+    clf = RandomForestRegressor()
 
     # Fit the GridSearch model
     clf.fit(X, y)
-
-    print(clf.best_params_)
+    '''
+    print("{} Best params: {}".format(name, clf.best_params_))
     print()
-    print("{} OOB score: {}".format(name, clf.best_estimator_.oob_score_))
+    print("{} Best score: {}".format(name, clf.best_score_))
     print()
     print(pd.DataFrame(clf.feature_importances_,
             index = X.columns,
             columns=['importance']).sort_values('importance',
-                                                ascending=False))
+                                    ascending=False))
+    print()
+    '''
+    print("{} Best params: {}".format(name, clf.best_params_))
+    print()
+    print("{} Best score: {}".format(name, clf.best_score_))
+    print()
+    print(pd.DataFrame(clf.feature_importances_,
+            index = X.columns,
+            columns=['importance']).sort_values('importance',
+                                    ascending=False))
     print()
     # Save the best model to a pickle file
     if sample_flag:
@@ -159,10 +169,11 @@ def grid_search(X, y, name, sample_flag):
     return clf
 
 
-def raw_to_stops(df):
-    df_stop_times = pd.read_csv('google_transit/stop_times.txt')
-    df_trips = pd.read_csv('google_transit/trips.txt')
-    df_routes = pd.read_csv('google_transit/routes.txt')
+def raw_to_stops(df, df_gtfs):
+    #Give the GTFS dictionary dataframes aliases to avoid confusion later
+    df_stop_times = df_gtfs['stop_times']
+    df_trips = df_gtfs['trips']
+    df_routes = df_gtfs['routes']
 
     df_offset = df_stop_times.copy()
 
@@ -234,7 +245,7 @@ def raw_to_stops(df):
     df_stop_data = df_dates.merge(df_stop_data, how='outer')
     df_stop_data = df_stop_data.drop('key', axis=1)
 
-    #Fix to deal with bug where pandas treats line names as ints - add some text to the start_time
+    #Fix to deal with bug where pandas treats line names as ints - add some text to the route_short_name
     df['route_short_name'] = ('Muni-'+df['route_short_name'].astype(str))
     df_stop_data['route_short_name'] = ('Muni-'+df_stop_data['route_short_name'].astype(str))
 
@@ -295,7 +306,7 @@ def durations_to_distributions(df):
     df_timestamps = pd.DataFrame(df['departure_time_hour'].unique(), columns=['departure_time_hour'])
     df_timestamps['key'] = 1
 
-    #Calculate create minutes array
+    #Create minutes array
     df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
     df_minutes['key'] = 1
 
@@ -311,8 +322,6 @@ def durations_to_distributions(df):
 
     #Join on actual stop data
     df = df_timestamps.merge(df, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
-
-    df.groupby(['departure_stop_id', 'arrival_stop_id']).count()
 
     #Backfill so each minute has the data for the next departure
     df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
@@ -340,12 +349,17 @@ def durations_to_distributions(df):
 
     #Split into columns
     df[['shape', 'scale']] = df['total_journey_time'].apply(pd.Series)
-    df = df.drop('total_journey_time', axis=1)
-
-    #Drop NAs
-    df = df.dropna()
 
     #Generate Target
     df['mean'] = df['shape'] * df['scale']
+
+    #Localize timezone
+    df['departure_time_hour'] = df['departure_time_hour'].dt.tz_localize('utc').dt.tz_convert('US/Pacific')
+
+    #Drop uneeded columns
+    df = df[['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean']]
+
+    #Drop NAs
+    df = df.dropna()
 
     return df

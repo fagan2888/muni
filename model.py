@@ -12,24 +12,28 @@ start_time = time.time()
 SAMPLE_ONLY = True
 
 REFRESH_DATA = False
-PROCESS_DATA = True
-TRAIN_MODEL = False
+PROCESS_DATA = False
+TRAIN_MODEL = True
+TEST_MODEL = False
 
 #Load data
 if REFRESH_DATA:
-    print('Refreshing data from SQL... ')
+    print('Refreshing raw data from SQL...')
     df = dp.get_raw(SAMPLE_ONLY)
 else:
-    print('Loading data from CSV... ')
+    print('Loading raw data from CSV...')
     if SAMPLE_ONLY:
         df = pd.read_csv('data/vehicle_monitoring_sample.csv')
     else:
         df = pd.read_csv('data/vehicle_monitoring.csv')
 
+#Load GTFS data
+df_gtfs = dp.load_gtfs_data()
+
 #Process data (or skip)
 if PROCESS_DATA:
     print('Converting raw data to stops... ({} secs elapsed)'.format(time.time() - start_time))
-    df = dp.raw_to_stops(df)
+    df = dp.raw_to_stops(df, df_gtfs)
 
     print('Converting stop data to durations... ({} secs elapsed)'.format(time.time() - start_time))
     df = dp.stops_to_durations(df)
@@ -42,26 +46,59 @@ if PROCESS_DATA:
     else:
         df.to_csv('data/distributions.csv', index=False)
 else:
+    print('Loading distribution data from CSV... ({} secs elapsed)'.format(time.time() - start_time))
     if SAMPLE_ONLY:
-        df = pd.read_csv('data/distributions_sample.csv')
+        df = pd.read_csv('data/distributions_sample.csv', parse_dates=[0], infer_datetime_format=True)
     else:
-        df = pd.read_csv('data/distributions.csv')
+        df = pd.read_csv('data/distributions.csv', parse_dates=[0],infer_datetime_format=True)
+        #Re-localize time
+    df['departure_time_hour'] = df['departure_time_hour'].dt.tz_localize('utc').dt.tz_convert('US/Pacific')
 
 if TRAIN_MODEL:
-    print('Creating model from distributions... ({} secs elapsed)'.format(time.time() - start_time))
+    print('Creating models from distributions... ({} secs elapsed)'.format(time.time() - start_time))
 
     #Split into X and y
-    y_mean = df_dists['mean']
-    y_shape = df_dists['shape']
-    X_mean = df_dists.drop(columns=['mean', 'shape', 'scale'])
+    y_mean = df['mean']
+    y_shape = df['shape']
+    X_mean = df.drop(columns=['mean', 'shape', 'scale'])
 
     #Create Features
-    X_mean = dp.create_features(X_mean)
+    X_mean = dp.create_features(X_mean, df_gtfs)
 
+    #Train model to predict mean
     clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
 
     #Predict means from clf_mean model and add back into training data
     y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])
     X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
 
-    clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape')
+    #Train model to predict shape
+    clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+
+if TEST_MODEL:
+    print('Loading models from pickle files... ({} secs elapsed)'.format(time.time() - start_time))
+    #Reload model so that model names are standard
+    if SAMPLE_ONLY:
+        clf_mean = pickle.load(open('clf_mean_sample.pickle', 'rb'))
+        clf_shape = pickle.load(open('clf_shape_sample.pickle', 'rb'))
+    else:
+        clf_mean = pickle.load(open('clf_mean.pickle', 'rb'))
+        clf_shape = pickle.load(open('clf_shape.pickle', 'rb'))
+
+    cols = ['departure_time_hour_local','route_short_name','departure_stop_id','arrival_stop_id']
+
+    #This example is Castro to Montgomery, all lines
+    data = [['2018-11-21 08:00', 'Muni-K', 15728, 15731],
+            ['2018-11-21 08:00', 'Muni-L', 15728, 15731],
+            ['2018-11-21 08:00', 'Muni-M', 15728, 15731]]
+
+    df_test = pd.DataFrame(data, columns=cols)
+
+    X_mean = dp.create_features(df_test, df_gtfs)
+
+    #Predict means from clf_mean model and add back into test data
+    y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])
+    X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
+
+    #Predict means from clf_mean model and add back into test data
+    y_shape_pred = pd.DataFrame(clf_mean.predict(X_shape), columns=['shape'])
