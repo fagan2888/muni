@@ -184,9 +184,9 @@ def raw_to_stops(df, gtfs_fn):
         stop, and the time of the event. 
     """
 
-    df_stop_times = pd.read_csv('google_transit/stop_times.txt')
-    df_trips = pd.read_csv('google_transit/trips.txt')
-    df_routes = pd.read_csv('google_transit/routes.txt')
+    df_stop_times = pd.read_csv( os.path.join( gtfs_fn, 'stop_times.txt') )
+    df_trips = pd.read_csv( os.path.join( gtfs_fn, 'trips.txt' ) )
+    df_routes = pd.read_csv( os.path.join( gtfs_fn, 'routes.txt' ) )
 
     df_offset = df_stop_times.copy()
 
