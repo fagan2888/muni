@@ -240,9 +240,6 @@ def raw_to_stops(df):
     #Interpolate timestamps for missing stop events
     df['stop_time_unix'] = df.groupby(['schedule_date', 'trip_id'])['stop_time_unix'].apply(lambda group: group.interpolate(limit_area='inside'))
 
-    df[df['trip_id']==8332497][['schedule_date', 'route_short_name', 'trip_id', 'stop_id']]
-
-
     #Convert back to actual timestamps
     df['stop_time'] = pd.to_datetime(df['stop_time_unix'], origin='unix', unit='s')
 
@@ -265,7 +262,7 @@ def stops_to_durations(df):
     df_stops_arr = df_stops_arr.rename(index=str, columns={"stop_id": "arrival_stop_id", "stop_time": "arrival_time", "stop_time_unix": "arrival_time_unix"})
 
     #Join the two on trip ID and date
-    df = df.merge(df_stops_arr, on=['schedule_date', 'trip_id'])
+    df = df.merge(df_stops_arr, on=['schedule_date', 'route_short_name', 'trip_id'])
 
     #Thow out any journeys that do not go forwards in time
     df = df[df['arrival_time_unix'] > df['departure_time_unix']]
@@ -322,18 +319,26 @@ def durations_to_distributions(df):
     def calc_distribution(x):
         try:
             params = st.gamma.fit(x[x > 0], floc=0)
+            shape = params[0]
+            scale = params[2]
         except Exception as e:
             print(e)
             print(x)
-        return pd.DataFrame({'shape': [params[0]], 'scale': [params[2]]})
+            shape = np.NaN
+            scale = np.NaN
+        return shape, scale
 
+    #Calculate shape and scale parameters
+    df = df.groupby(['departure_time_hour', 'route_short_name', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
 
-    df = df.groupby(['departure_time_hour', 'departure_stop_id', 'arrival_stop_id']).agg({'total_journey_time': calc_distribution}).reset_index()
+    #Split into columns
+    df[['shape', 'scale']] = df['total_journey_time'].apply(pd.Series)
+    df = df.drop('total_journey_time', axis=1)
 
     #Drop NAs
     df = df.dropna()
 
     #Generate Target
-    #df['mean'] = df['shape'] * df['scale']
+    df['mean'] = df['shape'] * df['scale']
 
     return df

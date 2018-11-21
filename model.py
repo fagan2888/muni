@@ -4,11 +4,12 @@ import pandas as pd
 import time
 import data_processing as dp
 from scipy.interpolate import interp1d
+import scipy.stats as st
 reload(dp)
 
 start_time = time.time()
 
-REFRESH_DATA = False
+REFRESH_DATA = True
 
 #Load data
 if REFRESH_DATA:
@@ -27,10 +28,11 @@ df = dp.stops_to_durations(df)
 print('Converting durations to distributions... ({} secs elapsed)'.format(time.time() - start_time))
 df = dp.durations_to_distributions(df)
 
-df
 df.to_csv('data/distributions.csv', index=False)
 
 print('Creating model from distributions... ({} secs elapsed)'.format(time.time() - start_time))
+
+
 #Split into X and y
 y_mean = df_dists['mean']
 y_shape = df_dists['shape']
