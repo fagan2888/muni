@@ -53,7 +53,7 @@ if TRAIN_MODEL:
     #Split into X and y
     y_mean = df_dists['mean']
     y_shape = df_dists['shape']
-    X_mean = df_dists.drop(columns=['mean', 'shape', 'scale', 'sse'])
+    X_mean = df_dists.drop(columns=['mean', 'shape', 'scale'])
 
     #Create Features
     X_mean = dp.create_features(X_mean)
