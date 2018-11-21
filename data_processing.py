@@ -11,7 +11,7 @@ from sklearn.ensemble import RandomForestRegressor
 from scipy.interpolate import interp1d
 import scipy.stats as st
 
-def get_raw():
+def get_raw(sample_flag):
     with open('credentials.json') as json_data:
         credentials = json.load(json_data)
 
@@ -21,7 +21,12 @@ def get_raw():
                         user = credentials['user'],
                         password = credentials['password'])
 
-    df = pr.redshift_to_pandas("""select * from vehicle_monitoring""")
+    if sample_flag:
+        df = pr.redshift_to_pandas("""select * from vehicle_monitoring limit 1000""")
+        df.to_csv('data/vehicle_monitoring_sample.csv', index=False)
+    else:
+        df = pr.redshift_to_pandas("""select * from vehicle_monitoring""")
+        df.to_csv('data/vehicle_monitoring.csv', index=False)
     pr.close_up_shop()
     return df
 
@@ -90,7 +95,7 @@ def create_features(df_dists):
     return df_dists
 
 
-def grid_search(X, y, name):
+def grid_search(X, y, name, sample_flag):
     '''
     # Params to pass to the GridSearchCV
     param_grid = {
@@ -145,9 +150,11 @@ def grid_search(X, y, name):
             columns=['importance']).sort_values('importance',
                                                 ascending=False))
     print()
-
     # Save the best model to a pickle file
-    pickle.dump(clf.best_estimator_, open('{}.pickle'.format(name), 'wb'))
+    if sample_flag:
+        pickle.dump(clf.best_estimator_, open('{}_sample.pickle'.format(name), 'wb'))
+    else:
+        pickle.dump(clf.best_estimator_, open('{}.pickle'.format(name), 'wb'))
 
     return clf
 
