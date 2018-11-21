@@ -160,6 +160,26 @@ def grid_search(X, y, name, sample_flag):
 
 
 def raw_to_stops(df):
+    """Input: Dataframe, where each row is a response from the Muni vehicle information API; (ie, a "GPS fix"). 
+    Each GPS fix has columns describing the current date and time, some information about vehicle and the route 
+    it's on, its location, and its predicted arrival at the next stop.
+
+    Output: Dataframe, each row is a "stop passby" event, detailing an event in which a vehicle running
+    a particular trip passed by a particular stop. Each row contains information about the service day, trip,
+    stop, and the time at which it was passed.
+
+    This is a tricky process, because successive GPS fixes may span a period of time during which the vehicle
+    passed more than one stop.
+
+                fix1                    fix2       
+    +------------+-----------------------+---------->
+    +----|-----------|--------|------|--------|----->
+        stop1      stop2    stop3   stop4    stop5
+                      --> time
+
+    Consequently, fancy interpolation is necessary.
+    """
+
     df_stop_times = pd.read_csv('google_transit/stop_times.txt')
     df_trips = pd.read_csv('google_transit/trips.txt')
     df_routes = pd.read_csv('google_transit/routes.txt')
