@@ -161,7 +161,7 @@ def grid_search(X, y, name, sample_flag):
 
 def raw_to_stops(df, gtfs_fn):
     """
-    Convert Muni API raw responses into stop events.This is a tricky process, because successive 
+    Convert Muni API raw responses ("GPS fixes") into stop events. This is a tricky process, because successive 
     GPS fixes may span a period of time during which the vehicle passed more than one stop.
 
                 fix1                    fix2       
