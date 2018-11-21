@@ -159,17 +159,10 @@ def grid_search(X, y, name, sample_flag):
     return clf
 
 
-def raw_to_stops(df):
-    """Input: Dataframe, where each row is a response from the Muni vehicle information API; (ie, a "GPS fix"). 
-    Each GPS fix has columns describing the current date and time, some information about vehicle and the route 
-    it's on, its location, and its predicted arrival at the next stop.
-
-    Output: Dataframe, each row is a "stop passby" event, detailing an event in which a vehicle running
-    a particular trip passed by a particular stop. Each row contains information about the service day, trip,
-    stop, and the time at which it was passed.
-
-    This is a tricky process, because successive GPS fixes may span a period of time during which the vehicle
-    passed more than one stop.
+def raw_to_stops(df, gtfs_fn):
+    """
+    Convert Muni API raw responses into stop events.This is a tricky process, because successive 
+    GPS fixes may span a period of time during which the vehicle passed more than one stop.
 
                 fix1                    fix2       
     +------------+-----------------------+---------->
@@ -178,6 +171,17 @@ def raw_to_stops(df):
                       --> time
 
     Consequently, fancy interpolation is necessary.
+    
+    Args:
+        df (DataFrame): Each row is a response from the Muni vehicle information API; (ie, a "GPS fix"). 
+            Each GPS fix has columns describing the current date and time, some information about 
+            vehicle and the route it's on, its location, and its predicted arrival at the next stop.
+        gtfs_fn (string): Relative name of directory containing unzipped GTFS feed.
+
+    Returns:
+        (DataFrame): Each row is a "stop passby" event, detailing an event in which a vehicle running
+        a particular trip passed by a particular stop. Each row contains information about the service day, trip,
+        stop, and the time of the event. 
     """
 
     df_stop_times = pd.read_csv('google_transit/stop_times.txt')
