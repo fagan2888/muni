@@ -7,15 +7,16 @@ from scipy.interpolate import interp1d
 import scipy.stats as st
 from sklearn.ensemble import RandomForestRegressor
 import pickle
+import groupby
 reload(dp)
 
 start_time = time.time()
 
-SAMPLE_ONLY = True
+SAMPLE_ONLY = False
 
-REFRESH_DATA = False
-PROCESS_DATA = False
-TRAIN_MODEL = False
+REFRESH_DATA = True
+PROCESS_DATA = True
+TRAIN_MODEL = True
 TEST_MODEL = True
 
 #Load data
@@ -66,16 +67,16 @@ if TRAIN_MODEL:
     X_mean = dp.create_features(X_mean, df_gtfs)
 
     #Train model to predict mean
-    #clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
-    clf_mean = dp.fit_default(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
+    clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
+    #clf_mean = dp.fit_default(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
 
     #Predict means from clf_mean model and add back into training data
     y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])
     X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
 
     #Train model to predict shape
-    #clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
-    clf_shape = dp.fit_default(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+    clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+    #clf_shape = dp.fit_default(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
 
 else:
     print('Loading models from pickle files... ({} secs elapsed)'.format(time.time() - start_time))
