@@ -318,6 +318,93 @@ def durations_to_distributions(df):
     df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
     df_timestamps = df_timestamps.reset_index(drop=True)
 
+    df_final = pd.DataFrame(columns=['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean'])
+
+    #Looping to avoid memory errors:
+    for hour in df['departure_time_hour'].unique():
+
+        print('Processing hour {}'.format(hour))
+        df_temp = df[df['departure_time_hour']==hour]
+
+        #Join on actual stop data
+        df_temp = df_timestamps.merge(df_temp, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
+
+        #Backfill so each minute has the data for the next departure
+        df_temp = df_temp.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
+
+        #Add total journey time column
+        df_temp['total_journey_time'] = df_temp['arrival_time_unix'] - df_temp['departure_time_minute_unix']
+
+        #Drop NaNs (occurs at the end of the data set when we don't know when the next bus will come.)
+        df_temp = df_temp.dropna(subset=['total_journey_time'])
+
+        def calc_distribution(x):
+            try:
+                params = st.gamma.fit(x[x > 0], floc=0)
+                shape = params[0]
+                scale = params[2]
+            except Exception as e:
+                print(e)
+                print(x)
+                shape = np.NaN
+                scale = np.NaN
+            return shape, scale
+
+        #Calculate shape and scale parameters
+        df_temp = df_temp.groupby(['departure_time_hour', 'route_short_name', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
+
+        #Split into columns
+        df_temp[['shape', 'scale']] = df_temp['total_journey_time'].apply(pd.Series)
+
+        #Generate Target
+        df_temp['mean'] = df_temp['shape'] * df_temp['scale']
+
+        #Drop uneeded columns
+        df_temp = df_temp[['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean']]
+
+        #Drop NAs
+        df_temp = df_temp.dropna()
+
+        df_final = df_final.append(df_temp)
+
+        del(df_temp)
+
+    df_final['departure_stop_id'] = df_final['departure_stop_id'].astype(int)
+    df_final['arrival_stop_id'] = df_final['arrival_stop_id'].astype(int)
+    
+    return df_final
+
+'''
+def durations_to_distributions(df):
+    #Add hour and minute columns
+    df['departure_time_hour'] = df['departure_time'].dt.round('H')
+    df['departure_time_minute'] = df['departure_time'].dt.round('min')
+
+    #Get departure and arrival stop info
+    df_stops_dep = pd.DataFrame(df['departure_stop_id'].unique(), columns=['departure_stop_id'])
+    df_stops_dep['key'] = 1
+
+    df_stops_arr = pd.DataFrame(df['arrival_stop_id'].unique(), columns=['arrival_stop_id'])
+    df_stops_arr['key'] = 1
+
+    #Get departure time hours for this dataset
+    df_timestamps = pd.DataFrame(df['departure_time_hour'].unique(), columns=['departure_time_hour'])
+    df_timestamps['key'] = 1
+
+    #Create minutes array
+    df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
+    df_minutes['key'] = 1
+
+    #Combine to form base time array
+    df_timestamps = df_timestamps.merge(df_minutes).merge(df_stops_dep).merge(df_stops_arr)
+    df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
+    df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
+    df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+
+    #Sort array
+    df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
+    df_timestamps = df_timestamps.reset_index(drop=True)
+
     #Join on actual stop data
     df = df_timestamps.merge(df, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
 
@@ -358,3 +445,4 @@ def durations_to_distributions(df):
     df = df.dropna()
 
     return df
+'''

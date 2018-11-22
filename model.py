@@ -7,7 +7,6 @@ from scipy.interpolate import interp1d
 import scipy.stats as st
 from sklearn.ensemble import RandomForestRegressor
 import pickle
-import groupby
 reload(dp)
 
 start_time = time.time()
@@ -62,7 +61,7 @@ if TRAIN_MODEL:
     y_mean = df['mean']
     y_shape = df['shape']
     X_mean = df.drop(columns=['mean', 'shape', 'scale'])
-
+    df.info()
     #Create Features
     X_mean = dp.create_features(X_mean, df_gtfs)
 
