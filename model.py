@@ -5,6 +5,8 @@ import time
 import data_processing as dp
 from scipy.interpolate import interp1d
 import scipy.stats as st
+from sklearn.ensemble import RandomForestRegressor
+import pickle
 reload(dp)
 
 start_time = time.time()
@@ -13,8 +15,8 @@ SAMPLE_ONLY = True
 
 REFRESH_DATA = False
 PROCESS_DATA = False
-TRAIN_MODEL = True
-TEST_MODEL = False
+TRAIN_MODEL = False
+TEST_MODEL = True
 
 #Load data
 if REFRESH_DATA:
@@ -51,8 +53,6 @@ else:
         df = pd.read_csv('data/distributions_sample.csv', parse_dates=[0], infer_datetime_format=True)
     else:
         df = pd.read_csv('data/distributions.csv', parse_dates=[0],infer_datetime_format=True)
-        #Re-localize time
-    df['departure_time_hour'] = df['departure_time_hour'].dt.tz_localize('utc').dt.tz_convert('US/Pacific')
 
 if TRAIN_MODEL:
     print('Creating models from distributions... ({} secs elapsed)'.format(time.time() - start_time))
@@ -66,16 +66,18 @@ if TRAIN_MODEL:
     X_mean = dp.create_features(X_mean, df_gtfs)
 
     #Train model to predict mean
-    clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
+    #clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
+    clf_mean = dp.fit_default(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
 
     #Predict means from clf_mean model and add back into training data
     y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])
     X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
 
     #Train model to predict shape
-    clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+    #clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+    clf_shape = dp.fit_default(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
 
-if TEST_MODEL:
+else:
     print('Loading models from pickle files... ({} secs elapsed)'.format(time.time() - start_time))
     #Reload model so that model names are standard
     if SAMPLE_ONLY:
@@ -85,12 +87,13 @@ if TEST_MODEL:
         clf_mean = pickle.load(open('clf_mean.pickle', 'rb'))
         clf_shape = pickle.load(open('clf_shape.pickle', 'rb'))
 
-    cols = ['departure_time_hour_local','route_short_name','departure_stop_id','arrival_stop_id']
+if TEST_MODEL:
+    cols = ['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id']
 
     #This example is Castro to Montgomery, all lines
-    data = [['2018-11-21 08:00', 'Muni-K', 15728, 15731],
-            ['2018-11-21 08:00', 'Muni-L', 15728, 15731],
-            ['2018-11-21 08:00', 'Muni-M', 15728, 15731]]
+    data = [['2018-11-21 08:00-08:00', 'Muni-KT', 5728, 5731],
+            ['2018-11-21 08:00-08:00', 'Muni-L', 5728, 5731],
+            ['2018-11-21 08:00-08:00', 'Muni-M', 5728, 5731]]
 
     df_test = pd.DataFrame(data, columns=cols)
 
@@ -101,4 +104,8 @@ if TEST_MODEL:
     X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
 
     #Predict means from clf_mean model and add back into test data
-    y_shape_pred = pd.DataFrame(clf_mean.predict(X_shape), columns=['shape'])
+    y_shape_pred = pd.DataFrame(clf_shape.predict(X_shape), columns=['shape'])
+
+    df_test = df_test.merge(y_mean_pred, left_index=True, right_index=True)
+    df_test = df_test.merge(y_shape_pred, left_index=True, right_index=True)
+    print (df_test)

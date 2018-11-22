@@ -63,6 +63,12 @@ def load_gtfs_data(path='google_transit'):
 
 
 def create_features(df, df_gtfs):
+    #Convert timestamps
+    df['departure_time_hour'] = pd.to_datetime(df['departure_time_hour'])
+
+    #Re-localize time
+    df['departure_time_hour'] = df['departure_time_hour'].dt.tz_localize('utc').dt.tz_convert('US/Pacific')
+
     #Generate local day of week and hour features
     df['dow'] = df['departure_time_hour'].dt.dayofweek
     df['hour'] = df['departure_time_hour'].dt.hour
@@ -101,9 +107,32 @@ def create_features(df, df_gtfs):
     df = df.reset_index(drop=True)
     return df
 
+def fit_default(X, y, name, sample_flag):
+
+    clf = RandomForestRegressor(oob_score=True)
+
+    clf.fit(X, y)
+
+    print("{} Best params: {}".format(name, clf.get_params()))
+    print()
+    print("{} Best score: {}".format(name, clf.oob_score_))
+    print()
+    print(pd.DataFrame(clf.feature_importances_,
+            index = X.columns,
+            columns=['importance']).sort_values('importance',
+                                    ascending=False))
+    print()
+
+    # Save the  model to a pickle file
+    if sample_flag:
+        pickle.dump(clf, open('{}_sample.pickle'.format(name), 'wb'))
+    else:
+        pickle.dump(clf, open('{}.pickle'.format(name), 'wb'))
+
+    return clf
 
 def grid_search(X, y, name, sample_flag):
-    '''
+
     # Number of trees in random forest
     n_estimators = [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]
     # Number of features to consider at every split
@@ -135,38 +164,29 @@ def grid_search(X, y, name, sample_flag):
                                 verbose=10,
                                 random_state=42,
                                 n_jobs = -1)
-    '''
+
     clf = RandomForestRegressor()
 
     # Fit the GridSearch model
     clf.fit(X, y)
-    '''
-    print("{} Best params: {}".format(name, clf.best_params_))
+
+    print("{} Params: {}".format(name, clf.best_params_))
     print()
-    print("{} Best score: {}".format(name, clf.best_score_))
-    print()
-    print(pd.DataFrame(clf.feature_importances_,
-            index = X.columns,
-            columns=['importance']).sort_values('importance',
-                                    ascending=False))
-    print()
-    '''
-    print("{} Best params: {}".format(name, clf.best_params_))
-    print()
-    print("{} Best score: {}".format(name, clf.best_score_))
+    print("{} Score: {}".format(name, clf.best_score_))
     print()
     print(pd.DataFrame(clf.feature_importances_,
             index = X.columns,
             columns=['importance']).sort_values('importance',
                                     ascending=False))
     print()
+
     # Save the best model to a pickle file
     if sample_flag:
         pickle.dump(clf.best_estimator_, open('{}_sample.pickle'.format(name), 'wb'))
     else:
         pickle.dump(clf.best_estimator_, open('{}.pickle'.format(name), 'wb'))
 
-    return clf
+    return clf.best_estimator_
 
 
 def raw_to_stops(df, df_gtfs):
