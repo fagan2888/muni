@@ -13,7 +13,7 @@ start_time = time.time()
 
 SAMPLE_ONLY = False
 
-REFRESH_DATA = True
+REFRESH_DATA = False
 PROCESS_DATA = True
 TRAIN_MODEL = True
 TEST_MODEL = True

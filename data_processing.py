@@ -300,31 +300,30 @@ def durations_to_distributions(df):
     df_stops_arr = pd.DataFrame(df['arrival_stop_id'].unique(), columns=['arrival_stop_id'])
     df_stops_arr['key'] = 1
 
-    #Get departure time hours for this dataset
-    df_timestamps = pd.DataFrame(df['departure_time_hour'].unique(), columns=['departure_time_hour'])
-    df_timestamps['key'] = 1
-
     #Create minutes array
     df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
     df_minutes['key'] = 1
-
-    #Combine to form base time array
-    df_timestamps = df_timestamps.merge(df_minutes).merge(df_stops_dep).merge(df_stops_arr)
-    df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
-    df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
-    df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
-
-    #Sort array
-    df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
-    df_timestamps = df_timestamps.reset_index(drop=True)
 
     df_final = pd.DataFrame(columns=['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean'])
 
     #Looping to avoid memory errors:
     for hour in df['departure_time_hour'].unique():
-
         print('Processing hour {}'.format(hour))
         df_temp = df[df['departure_time_hour']==hour]
+
+        #Get departure time hours for this dataset
+        df_timestamps = pd.DataFrame([hour], columns=['departure_time_hour'])
+        df_timestamps['key'] = 1
+
+        #Combine to form base time array
+        df_timestamps = df_timestamps.merge(df_minutes).merge(df_stops_dep).merge(df_stops_arr)
+        df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
+        df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
+        df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+
+        #Sort array
+        df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
+        df_timestamps = df_timestamps.reset_index(drop=True)
 
         #Join on actual stop data
         df_temp = df_timestamps.merge(df_temp, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
@@ -371,7 +370,7 @@ def durations_to_distributions(df):
 
     df_final['departure_stop_id'] = df_final['departure_stop_id'].astype(int)
     df_final['arrival_stop_id'] = df_final['arrival_stop_id'].astype(int)
-    
+
     return df_final
 
 '''
