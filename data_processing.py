@@ -277,11 +277,15 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
 def stops_to_durations(df):
     #Get departure and arrival stop info
     df_stops_arr = df.copy()
-    df = df.rename(index=str, columns={"stop_id": "departure_stop_id", "stop_time": "departure_time", "stop_time_unix": "departure_time_unix"})
-    df_stops_arr = df_stops_arr.rename(index=str, columns={"stop_id": "arrival_stop_id", "stop_time": "arrival_time", "stop_time_unix": "arrival_time_unix"})
+    df = df.rename(index=str, columns={"stop_id": "departure_stop_id", 
+                                    "stop_time": "departure_time", 
+                                    "stop_time_unix": "departure_time_unix"})
+    df_stops_arr = df_stops_arr.rename(index=str, columns={"stop_id": "arrival_stop_id", 
+                    "stop_time": "arrival_time", 
+                    "stop_time_unix": "arrival_time_unix"})
 
     #Join the two on trip ID and date
-    df = df.merge(df_stops_arr, on=['schedule_date', 'route_short_name', 'trip_id'])
+    df = df.merge(df_stops_arr, on=['schedule_date', 'trip_id'])
 
     #Thow out any journeys that do not go forwards in time
     df = df[df['arrival_time_unix'] > df['departure_time_unix']]
