@@ -11,9 +11,9 @@ reload(dp)
 
 start_time = time.time()
 
-SAMPLE_ONLY = True
+SAMPLE_ONLY = False
 
-REFRESH_DATA = True
+REFRESH_DATA = False
 TRAIN_MODEL = True
 TEST_MODEL = True
 
@@ -33,6 +33,8 @@ df_gtfs = dp.load_gtfs_data()
 
 if TRAIN_MODEL:
     print('Creating models from distributions... ({} secs elapsed)'.format(time.time() - start_time))
+
+    df = df.dropna(axis='rows', how='any')
 
     #Split into X and y
     y_mean = df['mean']
@@ -73,7 +75,7 @@ if TEST_MODEL:
     df_test = pd.DataFrame(data, columns=cols)
 
     X_mean = dp.create_features(df_test, df_gtfs)
-
+    
     #Predict means from clf_mean model and add back into test data
     y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])
     X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)

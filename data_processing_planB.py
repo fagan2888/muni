@@ -73,7 +73,7 @@ def create_features(df, df_gtfs):
     df['stop_dist'] = np.sqrt((df['stop_lat_dist']**2) + (df['stop_lon_dist']**2))
 
     #Drop null columns, drop string/datetime columns
-    df = df.dropna(axis='columns', how='all')
+    df = df.dropna(axis='columns', how='any')
     df = df.drop(df.select_dtypes(['object', 'datetime64[ns, US/Pacific]']), axis=1)
 
     #Drop rows with nulls
