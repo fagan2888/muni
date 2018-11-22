@@ -113,16 +113,6 @@ def fit_default(X, y, name, sample_flag):
 
     clf.fit(X, y)
 
-    print("{} Best params: {}".format(name, clf.get_params()))
-    print()
-    print("{} Best score: {}".format(name, clf.oob_score_))
-    print()
-    print(pd.DataFrame(clf.feature_importances_,
-            index = X.columns,
-            columns=['importance']).sort_values('importance',
-                                    ascending=False))
-    print()
-
     # Save the  model to a pickle file
     if sample_flag:
         pickle.dump(clf, open('{}_sample.pickle'.format(name), 'wb'))
@@ -165,20 +155,8 @@ def grid_search(X, y, name, sample_flag):
                                 random_state=42,
                                 n_jobs = -1)
 
-    clf = RandomForestRegressor()
-
     # Fit the GridSearch model
     clf.fit(X, y)
-
-    print("{} Params: {}".format(name, clf.best_params_))
-    print()
-    print("{} Score: {}".format(name, clf.best_score_))
-    print()
-    print(pd.DataFrame(clf.feature_importances_,
-            index = X.columns,
-            columns=['importance']).sort_values('importance',
-                                    ascending=False))
-    print()
 
     # Save the best model to a pickle file
     if sample_flag:
@@ -372,9 +350,6 @@ def durations_to_distributions(df):
 
     #Generate Target
     df['mean'] = df['shape'] * df['scale']
-
-    #Localize timezone
-    df['departure_time_hour'] = df['departure_time_hour'].dt.tz_localize('utc').dt.tz_convert('US/Pacific')
 
     #Drop uneeded columns
     df = df[['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean']]
