@@ -287,7 +287,7 @@ def stops_to_durations(df):
     df['trip_duration'] = df['arrival_time_unix'] - df['departure_time_unix']
 
     return df
-
+'''
 def durations_to_distributions(df):
     #Add hour and minute columns
     df['departure_time_hour'] = df['departure_time'].dt.round('H')
@@ -316,7 +316,9 @@ def durations_to_distributions(df):
         df_timestamps['key'] = 1
 
         #Combine to form base time array
-        df_timestamps = df_timestamps.merge(df_minutes).merge(df_stops_dep).merge(df_stops_arr)
+        df_timestamps = df_timestamps.merge(df_minutes)
+        df_timestamps = df_timestamps.merge(df_stops_dep)
+        df_timestamps = df_timestamps.merge(df_stops_arr)
         df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
         df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
         df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
@@ -395,7 +397,9 @@ def durations_to_distributions(df):
     df_minutes['key'] = 1
 
     #Combine to form base time array
-    df_timestamps = df_timestamps.merge(df_minutes).merge(df_stops_dep).merge(df_stops_arr)
+    df_timestamps = df_timestamps.merge(df_minutes)
+    df_timestamps = df_timestamps.merge(df_stops_dep)
+    df_timestamps = df_timestamps.merge(df_stops_arr)
     df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
     df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
     df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
@@ -444,4 +448,3 @@ def durations_to_distributions(df):
     df = df.dropna()
 
     return df
-'''
