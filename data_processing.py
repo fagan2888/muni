@@ -10,6 +10,7 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
 from sklearn.ensemble import RandomForestRegressor
 from scipy.interpolate import interp1d
 import scipy.stats as st
+from datetime import timedelta
 
 def get_raw(sample_flag):
     with open('credentials.json') as json_data:
@@ -159,7 +160,7 @@ def grid_search(X, y, name, sample_flag):
     return clf
 
 
-def raw_to_stops(df, gtfs_fn):
+def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     """
     Convert Muni API raw responses ("GPS fixes") into stop events. This is a tricky process, because successive 
     GPS fixes may span a period of time during which the vehicle passed more than one stop.
@@ -177,6 +178,7 @@ def raw_to_stops(df, gtfs_fn):
             Each GPS fix has columns describing the current date and time, some information about 
             vehicle and the route it's on, its location, and its predicted arrival at the next stop.
         gtfs_fn (string): Relative name of directory containing unzipped GTFS feed.
+        timezone (string): standard time zone in which data was generated
 
     Returns:
         (DataFrame): Each row is a "stop passby" event, detailing an event in which a vehicle running
@@ -184,42 +186,35 @@ def raw_to_stops(df, gtfs_fn):
         stop, and the time of the event. 
     """
 
+    # Convert time columns into tz-aware datetimes
+    for colname in ["recorded_time","valid_until_time",
+                    "expected_arrival_time","expected_departure_time"]:
+        df[colname] = pd.to_datetime( df[colname], utc=True ).dt.tz_convert(timezone)
+    
+    # no need to convert data_frame_ref's time zone; it's just an unqualified date
+    df["data_frame_ref"] = pd.to_datetime( df["data_frame_ref"] )
+
+
     df_stop_times = pd.read_csv( join( gtfs_fn, 'stop_times.txt') )
     df_trips = pd.read_csv( join( gtfs_fn, 'trips.txt' ) )
     df_routes = pd.read_csv( join( gtfs_fn, 'routes.txt' ) )
 
-    df_offset = df_stop_times.copy()
-
-    #Calculate offset for calculating reference day
-    df_offset[['hours', 'mins', 'secs']] = df_offset['departure_time'].str.split(':', n=2, expand=True).astype(int)
-    df_offset['time'] = df_offset['hours'] + (df_offset['mins']/60) + (df_offset['secs']/(60*60))
-    df_offset['offset'] = 12 - df_offset['time']
-    df_offset = df_offset.groupby('trip_id').mean().reset_index()[['trip_id', 'offset']]
-    df_offset['offset'] = pd.to_timedelta(df_offset['offset'], unit='h')
+    # The column "date_time_ref" corresponds to the "service day" of the GPS fix. For times
+    # before 4 am, the service day is actually the day before. For example, a vehicle
+    # operating at 3am on November 11 is running accordingto the November 10 schedule.
+    df.loc[ df.expected_departure_time.dt.hour<4 , "data_frame_ref"] -= timedelta(days=1)
 
     #Drop uneeded columns
-    df = df[['line_ref', 'journey_ref', 'recorded_time', 'stop_point_ref']]
-
-    #Convert timestamps
-    df['recorded_time'] = pd.to_datetime(df['recorded_time'])
+    df = df[['data_frame_ref', 'line_ref', 'journey_ref', 'recorded_time', 'stop_point_ref']]
 
     #Rename columns to match GTFS data
-    df = df.rename(index=str, columns={"line_ref": "route_short_name", "journey_ref": "trip_id", "stop_point_ref": "stop_id"})
+    df = df.rename(index=str, columns={"line_ref": "route_short_name", 
+                                "journey_ref": "trip_id", 
+                                "stop_point_ref": "stop_id",
+                                "data_frame_ref": "schedule_date"})
 
     #Fix to deal with the fact that that stop_ids and trip_ids are in a slightly different format in the raw data
     df['stop_id'] = df['stop_id'].astype(str).str[1:].astype(int)
-
-    #Merge dataframes
-    df = df.merge(df_offset, on='trip_id', how='left')
-
-    #Fill NAs (would happen if there was no trip ID in the GTFS data... assume zero offset)
-    df['offset'] = df['offset'].fillna(0)
-
-    #Calculate schedule date
-    df['schedule_date'] = (df['recorded_time'] + df['offset']).dt.round('D')
-
-    #Drop uneeded columns
-    df = df[['schedule_date', 'route_short_name', 'trip_id', 'stop_id', 'recorded_time']]
 
     #Sort values, reset index
     df = df.sort_values(['schedule_date', 'trip_id', 'recorded_time'])
@@ -266,7 +261,7 @@ def raw_to_stops(df, gtfs_fn):
     df = df_stop_data.merge(df, on=['schedule_date', 'route_short_name', 'trip_id', 'stop_id'], how='outer')
 
     #Create unix time column
-    df['stop_time_unix'] = (df['stop_time'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+    df['stop_time_unix'] = (df['stop_time'] - pd.Timestamp("1970-01-01").tz_localize(timezone)) // pd.Timedelta('1s')
 
     #Interpolate timestamps for missing stop events
     df['stop_time_unix'] = df.groupby(['schedule_date', 'trip_id'])['stop_time_unix'].apply(lambda group: group.interpolate(limit_area='inside'))
