@@ -263,10 +263,10 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     df['stop_time'] = pd.to_datetime(df['stop_time_unix'], origin='unix', unit='s').dt.tz_localize(timezone)
 
     #Drop uneeeded columns
-    df = df[['schedule_date', 'trip_id', 'stop_id', 'stop_time', 'stop_time_unix']]
+    df = df[['schedule_date', 'trip_id', 'stop_id', 'stop_time']]
 
     #Remove NaNs (occurs if we are missing data at the start or end of a journey)
-    df = df.dropna(subset=['stop_time_unix'])
+    df = df.dropna(subset=['stop_time'])
 
     #Reset index
     df = df.reset_index(drop=True)
@@ -275,23 +275,36 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
 
 
 def stops_to_durations(df):
+    """
+    Finds all pairs of bus pass-by events where the second event is after
+    the first and both stops are on the same instance of a trip.
+
+    Args:
+        df (DataFrame): Contains bus pass-bys; each row contains the 
+        schedule_date, trip_id, stop_id, and time of the pass-by event.
+
+    Returns:
+        (DataFrame): Each row contains information on the journey time
+        between a pair of stops on a trip. The total nummber of rows returned
+        will be k*p^2, where k is the number of trips and p is the average
+        number of stops per trip.
+    """
+
     #Get departure and arrival stop info
     df_stops_arr = df.copy()
     df = df.rename(index=str, columns={"stop_id": "departure_stop_id", 
-                                    "stop_time": "departure_time", 
-                                    "stop_time_unix": "departure_time_unix"})
+                                    "stop_time": "departure_time"})
     df_stops_arr = df_stops_arr.rename(index=str, columns={"stop_id": "arrival_stop_id", 
-                    "stop_time": "arrival_time", 
-                    "stop_time_unix": "arrival_time_unix"})
+                    "stop_time": "arrival_time"})
 
     #Join the two on trip ID and date
     df = df.merge(df_stops_arr, on=['schedule_date', 'trip_id'])
 
     #Thow out any journeys that do not go forwards in time
-    df = df[df['arrival_time_unix'] > df['departure_time_unix']]
+    df = df[df['arrival_time'] > df['departure_time']]
 
     #Add trip duration column
-    df['trip_duration'] = df['arrival_time_unix'] - df['departure_time_unix']
+    df['trip_duration'] = (df['arrival_time'] - df['departure_time']).dt.total_seconds()
 
     return df
 
