@@ -196,8 +196,6 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
 
 
     df_stop_times = pd.read_csv( join( gtfs_fn, 'stop_times.txt') )
-    df_trips = pd.read_csv( join( gtfs_fn, 'trips.txt' ) )
-    df_routes = pd.read_csv( join( gtfs_fn, 'routes.txt' ) )
 
     # The column "date_time_ref" corresponds to the "service day" of the GPS fix. For times
     # before 4 am, the service day is actually the day before. For example, a vehicle
@@ -244,8 +242,7 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     df_dates = pd.DataFrame(df['schedule_date'].unique(), columns=['schedule_date'])
 
     #Compile dataset
-    df_stop_data = df_stop_times.merge(df_trips, on='trip_id').merge(df_routes, on='route_id')
-    df_stop_data = df_stop_data[['route_short_name', 'trip_id', 'stop_id', 'arrival_time', 'departure_time', 'stop_sequence']]
+    df_stop_data = df_stop_times[['trip_id', 'stop_id', 'arrival_time', 'departure_time', 'stop_sequence']]
 
     #Cross join with the stop data, to get the stops for all days
     df_dates['key'] = 1
@@ -253,12 +250,8 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     df_stop_data = df_dates.merge(df_stop_data, how='outer')
     df_stop_data = df_stop_data.drop('key', axis=1)
 
-    #Fix to deal with bug where pandas treats line names as ints - add some text to the start_time
-    df['route_short_name'] = ('Muni-'+df['route_short_name'].astype(str))
-    df_stop_data['route_short_name'] = ('Muni-'+df_stop_data['route_short_name'].astype(str))
-
     #Merge dataframes together
-    df = df_stop_data.merge(df, on=['schedule_date', 'route_short_name', 'trip_id', 'stop_id'], how='outer')
+    df = df_stop_data.merge(df, on=['schedule_date', 'trip_id', 'stop_id'], how='outer')
 
     #Create unix time column
     df['stop_time_unix'] = (df['stop_time'] - pd.Timestamp("1970-01-01").tz_localize(timezone)) // pd.Timedelta('1s')
@@ -267,10 +260,10 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     df['stop_time_unix'] = df.groupby(['schedule_date', 'trip_id'])['stop_time_unix'].apply(lambda group: group.interpolate(limit_area='inside'))
 
     #Convert back to actual timestamps
-    df['stop_time'] = pd.to_datetime(df['stop_time_unix'], origin='unix', unit='s')
+    df['stop_time'] = pd.to_datetime(df['stop_time_unix'], origin='unix', unit='s').dt.tz_localize(timezone)
 
     #Drop uneeeded columns
-    df = df[['schedule_date', 'route_short_name', 'trip_id', 'stop_id', 'stop_time', 'stop_time_unix']]
+    df = df[['schedule_date', 'trip_id', 'stop_id', 'stop_time', 'stop_time_unix']]
 
     #Remove NaNs (occurs if we are missing data at the start or end of a journey)
     df = df.dropna(subset=['stop_time_unix'])
