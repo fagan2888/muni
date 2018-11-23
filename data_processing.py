@@ -314,6 +314,20 @@ def stops_to_durations(df):
     return df
 
 def durations_to_distributions(df):
+    """
+    Finds parameter estimates for the distribution of travel times for all 
+    sets of (start_time, route_name, origin_stop, destination_stop) present in
+    the input dataframe.
+
+    Args:
+        df (DataFrame): DataFrame in format returned by `stops_to_durations`.
+
+    Returns:
+        (DataFrame): Contains distribution parameters of fit beta 
+        distribution for all (start_time, route_name, origin_stop, 
+        destination_stop) present in `df`.
+    """
+
     #Add hour and minute columns
     df['departure_time_hour'] = df['departure_time'].dt.round('H')
     df['departure_time_minute'] = df['departure_time'].dt.round('min')
