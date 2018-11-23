@@ -277,7 +277,7 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
 def stops_to_durations(df):
     """
     Finds all pairs of bus pass-by events where the second event is after
-    the first and both stops are on the same instance of a trip.
+    the first and both stops are on the same trip instance.
 
     Args:
         df (DataFrame): Contains bus pass-bys; each row contains the 
@@ -285,9 +285,9 @@ def stops_to_durations(df):
 
     Returns:
         (DataFrame): Each row contains information on the journey time
-        between a pair of stops on a trip. The total nummber of rows returned
-        will be k*p^2, where k is the number of trips and p is the average
-        number of stops per trip.
+        between a pair of stops on a trip instance. The total nummber of rows returned
+        will be k*p^2, where k is the number of trip instances and p is the average
+        number of stops per trip instance.
     """
 
     #Get departure and arrival stop info
