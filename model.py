@@ -13,7 +13,7 @@ start_time = time.time()
 
 SAMPLE_ONLY = False
 
-REFRESH_DATA = False
+REFRESH_DATA = True
 PROCESS_DATA = True
 TRAIN_MODEL = True
 TEST_MODEL = True
@@ -41,7 +41,7 @@ if PROCESS_DATA:
     df = dp.stops_to_durations(df)
 
     print('Converting durations to distributions... ({} secs elapsed)'.format(time.time() - start_time))
-    df = dp.durations_to_distributions(df)
+    df = dp.durations_to_distributions(df, start_time)
 
     if SAMPLE_ONLY:
         df.to_csv('data/distributions_sample.csv', index=False)
@@ -61,21 +61,21 @@ if TRAIN_MODEL:
     y_mean = df['mean']
     y_shape = df['shape']
     X_mean = df.drop(columns=['mean', 'shape', 'scale'])
-    df.info()
+
     #Create Features
     X_mean = dp.create_features(X_mean, df_gtfs)
 
     #Train model to predict mean
-    clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
-    #clf_mean = dp.fit_default(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
+    #clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
+    clf_mean = dp.fit_default(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
 
     #Predict means from clf_mean model and add back into training data
     y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])
     X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
 
     #Train model to predict shape
-    clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
-    #clf_shape = dp.fit_default(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+    #clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+    clf_shape = dp.fit_default(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
 
 else:
     print('Loading models from pickle files... ({} secs elapsed)'.format(time.time() - start_time))

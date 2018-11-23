@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import pandas_redshift as pr
 import pickle
+import time
 from os import listdir
 from os.path import isfile, join
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -69,6 +70,10 @@ def create_features(df, df_gtfs):
     #Re-localize time
     df['departure_time_hour'] = df['departure_time_hour'].dt.tz_localize('utc').dt.tz_convert('US/Pacific')
 
+    #Make sure stop IDs are minutes
+    df['departure_stop_id'] = df['departure_stop_id'].astype(int)
+    df['arrival_stop_id'] = df['arrival_stop_id'].astype(int)
+
     #Generate local day of week and hour features
     df['dow'] = df['departure_time_hour'].dt.dayofweek
     df['hour'] = df['departure_time_hour'].dt.hour
@@ -98,7 +103,7 @@ def create_features(df, df_gtfs):
 
     #Drop null columns, drop string/datetime columns
     df = df.dropna(axis='columns', how='all')
-    df = df.drop(df.select_dtypes(['object', 'datetime64[ns, US/Pacific]']), axis=1)
+    df = df.drop(df.select_dtypes(['object', 'datetime64[ns]', 'datetime64[ns, US/Pacific]']), axis=1)
 
     #Drop rows with nulls (gets rid of the rows added for dummying purposes)
     df = df.dropna(axis='rows', how='any')
@@ -286,52 +291,65 @@ def stops_to_durations(df):
     #Add trip duration column
     df['trip_duration'] = df['arrival_time_unix'] - df['departure_time_unix']
 
-    return df
-'''
-def durations_to_distributions(df):
     #Add hour and minute columns
-    df['departure_time_hour'] = df['departure_time'].dt.round('H')
-    df['departure_time_minute'] = df['departure_time'].dt.round('min')
+    df['departure_time_hour'] = df['departure_time'].dt.floor('H')
+    df['departure_time_minute'] = df['departure_time'].dt.floor('min')
 
-    #Get departure and arrival stop info
-    df_stops_dep = pd.DataFrame(df['departure_stop_id'].unique(), columns=['departure_stop_id'])
-    df_stops_dep['key'] = 1
+    return df
 
-    df_stops_arr = pd.DataFrame(df['arrival_stop_id'].unique(), columns=['arrival_stop_id'])
-    df_stops_arr['key'] = 1
-
+def durations_to_distributions(df, start_time):
     #Create minutes array
     df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
     df_minutes['key'] = 1
 
-    df_final = pd.DataFrame(columns=['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean'])
+    df_final = pd.DataFrame(columns=['schedule_date', 'route_short_name', 'departure_time_hour','departure_stop_id','arrival_stop_id','shape','scale','mean'])
 
-    #Looping to avoid memory errors:
-    for hour in df['departure_time_hour'].unique():
-        print('Processing hour {}'.format(hour))
-        df_temp = df[df['departure_time_hour']==hour]
+    #Looping to avoid memory errors. Get unique combos to loop through.
+    iter_list = df.groupby(['schedule_date', 'route_short_name', 'departure_time_hour']).count().reset_index()[['schedule_date', 'route_short_name', 'departure_time_hour']]
+    iter_len = iter_list.shape[0]
 
-        #Get departure time hours for this dataset
-        df_timestamps = pd.DataFrame([hour], columns=['departure_time_hour'])
+    #Loop through rows
+    for i, row in iter_list.iterrows():
+        #i = 1
+        #row = iter_list.iloc[i]
+
+        date = row['schedule_date']
+        route = row['route_short_name']
+        hour = row['departure_time_hour']
+        next_hour = hour + pd.to_timedelta(1, unit='h')
+
+        print('Processing row {} of {}, {} secs elapse'.format(i+1, iter_len, time.time() - start_time))
+
+        #Create subset of data for hour and route in question. Also get data for next hour.
+        df_temp = df[(df['schedule_date']==date) & (df['route_short_name']==route) & ((df['departure_time_hour']==hour) |  (df['departure_time_hour']==next_hour))]
+
+        #Get stop pairs from data
+        df_timestamps = df_temp.groupby(['departure_time_hour', 'departure_stop_id', 'arrival_stop_id']).count().reset_index()[['departure_time_hour', 'departure_stop_id', 'arrival_stop_id']]
         df_timestamps['key'] = 1
 
-        #Combine to form base time array
-        df_timestamps = df_timestamps.merge(df_minutes)
-        df_timestamps = df_timestamps.merge(df_stops_dep)
-        df_timestamps = df_timestamps.merge(df_stops_arr)
-        df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
-        df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
+        #Merge with minutes
+        df_timestamps = df_timestamps.merge(df_minutes, on='key')
+
+        #Create minutes timestamps and unix time column
+        df_timestamps['departure_time_minute'] = hour + pd.to_timedelta(df_timestamps.minute, unit='m')
         df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+
+        #Drop uneeded columns
+        df_timestamps = df_timestamps[['departure_time_hour', 'departure_stop_id', 'arrival_stop_id', 'departure_time_minute', 'departure_time_minute_unix']]
 
         #Sort array
         df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
-        df_timestamps = df_timestamps.reset_index(drop=True)
 
         #Join on actual stop data
-        df_temp = df_timestamps.merge(df_temp, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
+        df_temp = df_timestamps.merge(df_temp, on=['departure_time_hour', 'departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
+
+        del(df_timestamps)
 
         #Backfill so each minute has the data for the next departure
         df_temp = df_temp.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
+
+        #Drop second hour - no longer needed now that we have done the Backfill
+        df_temp = df_temp[df_temp['departure_time_hour']==hour]
 
         #Add total journey time column
         df_temp['total_journey_time'] = df_temp['arrival_time_unix'] - df_temp['departure_time_minute_unix']
@@ -352,7 +370,7 @@ def durations_to_distributions(df):
             return shape, scale
 
         #Calculate shape and scale parameters
-        df_temp = df_temp.groupby(['departure_time_hour', 'route_short_name', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
+        df_temp = df_temp.groupby(['departure_time_hour', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
 
         #Split into columns
         df_temp[['shape', 'scale']] = df_temp['total_journey_time'].apply(pd.Series)
@@ -360,8 +378,11 @@ def durations_to_distributions(df):
         #Generate Target
         df_temp['mean'] = df_temp['shape'] * df_temp['scale']
 
+        df_temp['schedule_date'] = date
+        df_temp['route_short_name'] = route
+
         #Drop uneeded columns
-        df_temp = df_temp[['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean']]
+        df_temp = df_temp[['schedule_date', 'route_short_name', 'departure_time_hour','departure_stop_id','arrival_stop_id','shape','scale','mean']]
 
         #Drop NAs
         df_temp = df_temp.dropna()
@@ -370,16 +391,13 @@ def durations_to_distributions(df):
 
         del(df_temp)
 
-    df_final['departure_stop_id'] = df_final['departure_stop_id'].astype(int)
-    df_final['arrival_stop_id'] = df_final['arrival_stop_id'].astype(int)
-
     return df_final
 
 '''
 def durations_to_distributions(df):
     #Add hour and minute columns
-    df['departure_time_hour'] = df['departure_time'].dt.round('H')
-    df['departure_time_minute'] = df['departure_time'].dt.round('min')
+    df['departure_time_hour'] = df['departure_time'].dt.floor('H')
+    df['departure_time_minute'] = df['departure_time'].dt.floor('min')
 
     #Get departure and arrival stop info
     df_stops_dep = pd.DataFrame(df['departure_stop_id'].unique(), columns=['departure_stop_id'])
@@ -403,7 +421,7 @@ def durations_to_distributions(df):
     del(df_stops_dep)
     df_timestamps = df_timestamps.merge(df_stops_arr)
     del(df_stops_arr)
-    
+
     df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
     df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
     df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
@@ -452,3 +470,4 @@ def durations_to_distributions(df):
     df = df.dropna()
 
     return df
+'''
