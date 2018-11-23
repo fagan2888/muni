@@ -162,8 +162,9 @@ def grid_search(X, y, name, sample_flag):
 
 def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     """
-    Convert Muni API raw responses ("GPS fixes") into stop events. This is a tricky process, because successive 
-    GPS fixes may span a period of time during which the vehicle passed more than one stop.
+    Convert Muni API raw responses ("GPS fixes") into stop events. This is a 
+    tricky process, because successive GPS fixes may span a period of time 
+    during which the vehicle passed more than one stop.
 
                 fix1                    fix2       
     +------------+-----------------------+---------->
@@ -174,16 +175,20 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     Consequently, fancy interpolation is necessary.
     
     Args:
-        df (DataFrame): Each row is a response from the Muni vehicle information API; (ie, a "GPS fix"). 
-            Each GPS fix has columns describing the current date and time, some information about 
-            vehicle and the route it's on, its location, and its predicted arrival at the next stop.
-        gtfs_fn (string): Relative name of directory containing unzipped GTFS feed.
-        timezone (string): standard time zone in which data was generated
+        df (DataFrame): Each row is a response from the Muni vehicle 
+            information API; (ie, a "GPS fix"). Each GPS fix has columns 
+            describing the current date and time, some information about 
+            vehicle and the route it's on, its location, and its predicted 
+            arrival at the next stop.
+        gtfs_fn (string): Relative name of directory containing unzipped GTFS 
+            feed. 
+        timezone (string): standard time zone in which data was generated.
 
     Returns:
-        (DataFrame): Each row is a "stop passby" event, detailing an event in which a vehicle running
-        a particular trip passed by a particular stop. Each row contains information about the service day, trip,
-        stop, and the time of the event. 
+        (DataFrame): Each row is a "stop passby" event, detailing an event in 
+            which a vehicle running a particular trip passed by a particular 
+            stop. Each row contains information about the service day, trip, 
+            stop, and the time of the event. 
     """
 
     # Convert time columns into tz-aware datetimes
@@ -285,9 +290,9 @@ def stops_to_durations(df):
 
     Returns:
         (DataFrame): Each row contains information on the journey time
-        between a pair of stops on a trip instance. The total nummber of rows returned
-        will be k*p^2, where k is the number of trip instances and p is the average
-        number of stops per trip instance.
+        between a pair of stops on a trip instance. The total nummber of rows 
+        returned will be k*p^2, where k is the number of trip instances and p 
+        is the average number of stops per trip instance.
     """
 
     #Get departure and arrival stop info
