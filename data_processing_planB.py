@@ -139,10 +139,10 @@ def grid_search(X, y, name, sample_flag):
                    'min_samples_leaf': min_samples_leaf,
                    'bootstrap': bootstrap}
 
-    model = RandomForestRegressor()
+    model = RandomForestRegressor(oob_score=True)
 
     # Create the GridSearch model
-    gs = GridSearchCV(estimator = model,
+    gs = RandomizedSearchCV(estimator = model,
                                 param_distributions = random_grid,
                                 n_iter = 10,
                                 cv = 3,
