@@ -313,6 +313,28 @@ def stops_to_durations(df):
 
     return df
 
+def cartesian_product( lsts ):
+    """
+    Returns Pandas DataFrame containing cartesian product of lists. This is the 
+    same as itertools.product, but faster.
+    """
+
+    ret = None
+
+    for lst in lsts:
+        subtable = pd.DataFrame(lst)
+        subtable["key"] = 1
+
+        if ret is None:
+            ret = subtable
+        else:
+            ret = ret.merge(subtable, on="key")
+
+    # they 'key' column was just a trick to get a set product; it's no longer needed
+    ret = ret.drop("key", axis=1)
+
+    return ret
+
 def durations_to_distributions(df):
     """
     Finds parameter estimates for the distribution of travel times for all 
@@ -332,25 +354,17 @@ def durations_to_distributions(df):
     df['departure_time_hour'] = df['departure_time'].dt.round('H')
     df['departure_time_minute'] = df['departure_time'].dt.round('min')
 
-    #Get departure and arrival stop info
-    df_stops_dep = pd.DataFrame(df['departure_stop_id'].unique(), columns=['departure_stop_id'])
-    df_stops_dep['key'] = 1
-
-    df_stops_arr = pd.DataFrame(df['arrival_stop_id'].unique(), columns=['arrival_stop_id'])
-    df_stops_arr['key'] = 1
-
-    #Get departure time hours for this dataset
-    df_hour_dep = pd.DataFrame(df['departure_time_hour'].unique(), columns=['departure_time_hour'])
-    df_hour_dep['key'] = 1
-
-    #Calculate create minutes array
-    df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
-    df_minutes['key'] = 1
-
-    #Combine to form base time array
-    df_timestamps = df_hour_dep.merge(df_minutes).merge(df_stops_dep).merge(df_stops_arr)
+    # we'll construct a dataframe with those unique combinations of origin
+    # stop, destination stop, and departure time
+    df_timestamps = cartesian_product( [df['departure_stop_id'].unique(),
+                              df['arrival_stop_id'].unique(),
+                              df['departure_time_hour'].unique(),
+                              np.arange(0,60)] )
+    df_timestamps.columns = ["departure_stop_id", "arrival_stop_id", "departure_time_hour", "minute"]
+    # the `departure_time_hour` and `minute` columns were just a means towards
+    # a `departure_time_minute` column
     df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
-    df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
+    df_timestamps.drop( ["departure_time_hour", "minute"], axis=1, inplace=True )
     df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
 
     #Sort array
