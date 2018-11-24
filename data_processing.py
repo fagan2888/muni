@@ -191,6 +191,8 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
             stop, and the time of the event. 
     """
 
+    df = df.copy()
+
     # Convert time columns into tz-aware datetimes
     for colname in ["recorded_time","valid_until_time",
                     "expected_arrival_time","expected_departure_time"]:
@@ -259,13 +261,13 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     df = df_stop_data.merge(df, on=['schedule_date', 'trip_id', 'stop_id'], how='outer')
 
     #Create unix time column
-    df['stop_time_unix'] = (df['stop_time'] - pd.Timestamp("1970-01-01").tz_localize(timezone)) // pd.Timedelta('1s')
+    df['stop_time_unix'] = epoch_seconds( df['stop_time'], preserve_null=True )
 
     #Interpolate timestamps for missing stop events
     df['stop_time_unix'] = df.groupby(['schedule_date', 'trip_id'])['stop_time_unix'].apply(lambda group: group.interpolate(limit_area='inside'))
 
     #Convert back to actual timestamps
-    df['stop_time'] = pd.to_datetime(df['stop_time_unix'], origin='unix', unit='s').dt.tz_localize(timezone)
+    df['stop_time'] = pd.to_datetime(df['stop_time_unix'], unit='s', utc=True).dt.tz_convert(timezone)
 
     #Drop uneeeded columns
     df = df[['schedule_date', 'trip_id', 'stop_id', 'stop_time']]
