@@ -34,6 +34,8 @@ df_gtfs = dp.load_gtfs_data()
 if TRAIN_MODEL:
     print('Creating models from distributions... ({} secs elapsed)'.format(time.time() - start_time))
 
+    df = df.dropna()
+
     #Split into X and y
     y_mean = df['mean']
     y_shape = df['shape']
@@ -43,7 +45,7 @@ if TRAIN_MODEL:
     X_mean = dp.create_features(X_mean, df_gtfs)
 
     #Train model to predict mean
-    clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
+    gs_mean, clf_mean = dp.grid_search(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
     #clf_mean = dp.fit_default(X_mean, y_mean, 'clf_mean', SAMPLE_ONLY)
 
     #Predict means from clf_mean model and add back into training data
@@ -51,7 +53,7 @@ if TRAIN_MODEL:
     X_shape = X_mean.merge(y_mean_pred, left_index=True, right_index=True)
 
     #Train model to predict shape
-    clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
+    gs_shape, clf_shape = dp.grid_search(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
     #clf_shape = dp.fit_default(X_shape, y_shape, 'clf_shape', SAMPLE_ONLY)
 
 else:
@@ -73,8 +75,6 @@ if TEST_MODEL:
     df_test = pd.DataFrame(data, columns=cols)
 
     X_mean = dp.create_features(df_test, df_gtfs)
-
-    X_mean
 
     #Predict means from clf_mean model and add back into test data
     y_mean_pred = pd.DataFrame(clf_mean.predict(X_mean), columns=['mean'])

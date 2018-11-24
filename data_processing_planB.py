@@ -142,7 +142,7 @@ def grid_search(X, y, name, sample_flag):
     model = RandomForestRegressor()
 
     # Create the GridSearch model
-    clf = RandomizedSearchCV(estimator = model,
+    gs = GridSearchCV(estimator = model,
                                 param_distributions = random_grid,
                                 n_iter = 10,
                                 cv = 3,
@@ -151,12 +151,12 @@ def grid_search(X, y, name, sample_flag):
                                 n_jobs = -1)
 
     # Fit the GridSearch model
-    clf.fit(X, y)
+    gs.fit(X, y)
 
     # Save the best model to a pickle file
     if sample_flag:
-        pickle.dump(clf.best_estimator_, open('{}_sample_planB.pickle'.format(name), 'wb'))
+        pickle.dump(gs.best_estimator_, open('{}_sample_planB.pickle'.format(name), 'wb'))
     else:
-        pickle.dump(clf.best_estimator_, open('{}_planB.pickle'.format(name), 'wb'))
+        pickle.dump(gs.best_estimator_, open('{}_planB.pickle'.format(name), 'wb'))
 
-    return clf.best_estimator_
+    return gs, clf.best_estimator_
