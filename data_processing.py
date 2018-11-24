@@ -335,6 +335,12 @@ def cartesian_product( lsts ):
 
     return ret
 
+def epoch_seconds( timestamp_series, preserve_null=True ):
+    if preserve_null:
+        return (timestamp_series.dt.tz_convert("utc") - pd.Timestamp("1970-01-01", tz="utc")) // pd.Timedelta('1s')
+    else:
+        return timestamp_series.astype(np.int64) // 1e9
+
 def durations_to_distributions(df):
     """
     Finds parameter estimates for the distribution of travel times for all 
@@ -365,7 +371,7 @@ def durations_to_distributions(df):
     # a `departure_time_minute` column
     df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
     df_timestamps.drop( ["departure_time_hour", "minute"], axis=1, inplace=True )
-    df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+    df_timestamps['departure_time_minute_unix'] = epoch_seconds( df_timestamps['departure_time_minute'] )
 
     #Sort array
     df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
