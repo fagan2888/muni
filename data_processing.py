@@ -296,7 +296,7 @@ def stops_to_durations(df):
     df['departure_time_minute'] = df['departure_time'].dt.floor('min')
 
     return df
-
+'''
 def durations_to_distributions(df, start_time):
     #Create minutes array
     df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
@@ -392,22 +392,16 @@ def durations_to_distributions(df, start_time):
         del(df_temp)
 
     return df_final
-
 '''
+
 def durations_to_distributions(df):
     #Add hour and minute columns
     df['departure_time_hour'] = df['departure_time'].dt.floor('H')
     df['departure_time_minute'] = df['departure_time'].dt.floor('min')
 
     #Get departure and arrival stop info
-    df_stops_dep = pd.DataFrame(df['departure_stop_id'].unique(), columns=['departure_stop_id'])
-    df_stops_dep['key'] = 1
-
-    df_stops_arr = pd.DataFrame(df['arrival_stop_id'].unique(), columns=['arrival_stop_id'])
-    df_stops_arr['key'] = 1
-
-    #Get departure time hours for this dataset
-    df_timestamps = pd.DataFrame(df['departure_time_hour'].unique(), columns=['departure_time_hour'])
+        #Get stop pairs from data
+    df_timestamps = df.groupby(['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id']).count().reset_index()[['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id']]
     df_timestamps['key'] = 1
 
     #Create minutes array
@@ -417,24 +411,22 @@ def durations_to_distributions(df):
     #Combine to form base time array
     df_timestamps = df_timestamps.merge(df_minutes)
     del(df_minutes)
-    df_timestamps = df_timestamps.merge(df_stops_dep)
-    del(df_stops_dep)
-    df_timestamps = df_timestamps.merge(df_stops_arr)
-    del(df_stops_arr)
 
     df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
-    df_timestamps = df_timestamps[['departure_stop_id', 'arrival_stop_id', 'departure_time_minute']]
     df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
+
+    df_timestamps = df_timestamps[['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id', 'departure_time_minute', 'departure_time_minute_unix']]
 
     #Sort array
     df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
     df_timestamps = df_timestamps.reset_index(drop=True)
 
     #Join on actual stop data
-    df = df_timestamps.merge(df, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
+    df = df_timestamps.merge(df, on=['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
+    del(df_timestamps)
 
     #Backfill so each minute has the data for the next departure
-    df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
+    df = df.groupby(['route_short_name','departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
 
     #Add total journey time column
     df['total_journey_time'] = df['arrival_time_unix'] - df['departure_time_minute_unix']
@@ -455,7 +447,7 @@ def durations_to_distributions(df):
         return shape, scale
 
     #Calculate shape and scale parameters
-    df = df.groupby(['departure_time_hour', 'route_short_name', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
+    df = df.groupby(['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
 
     #Split into columns
     df[['shape', 'scale']] = df['total_journey_time'].apply(pd.Series)
@@ -464,10 +456,9 @@ def durations_to_distributions(df):
     df['mean'] = df['shape'] * df['scale']
 
     #Drop uneeded columns
-    df = df[['departure_time_hour','route_short_name','departure_stop_id','arrival_stop_id','shape','scale','mean']]
+    df = df[['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id','arrival_stop_id','shape','scale','mean']]
 
     #Drop NAs
     df = df.dropna()
 
     return df
-'''

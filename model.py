@@ -11,9 +11,9 @@ reload(dp)
 
 start_time = time.time()
 
-SAMPLE_ONLY = False
+SAMPLE_ONLY = True
 
-REFRESH_DATA = True
+REFRESH_DATA = False
 PROCESS_DATA = True
 TRAIN_MODEL = True
 TEST_MODEL = True
@@ -41,7 +41,7 @@ if PROCESS_DATA:
     df = dp.stops_to_durations(df)
 
     print('Converting durations to distributions... ({} secs elapsed)'.format(time.time() - start_time))
-    df = dp.durations_to_distributions(df, start_time)
+    df = dp.durations_to_distributions(df)
 
     if SAMPLE_ONLY:
         df.to_csv('data/distributions_sample.csv', index=False)
