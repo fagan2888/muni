@@ -373,18 +373,22 @@ def durations_to_distributions(df):
     # a `departure_time_minute` column
     df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
     df_timestamps.drop( ["departure_time_hour", "minute"], axis=1, inplace=True )
-    df_timestamps['departure_time_minute_unix'] = epoch_seconds( df_timestamps['departure_time_minute'] )
+    df_timestamps['departure_time_minute_unix'] = epoch_seconds( df_timestamps['departure_time_minute'], preserve_null=False )
 
-    #Sort array
+    # Get every depart/arrival/time combination and sort them so that
+    # depart+arrive are adjacent and in chronological order. Then, take
+    # the observed journey times, and fill in corresponding time/block rows.
+    # For example, the journey stop:3072 -> stop:3074 occurs 18 times during 
+    # 2018-11-09. There are 1440 minute-rows for the pair (3072->3074) during
+    # that day, of which 13 will be filled in.
     df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
     df_timestamps = df_timestamps.reset_index(drop=True)
 
-    #Join on actual stop data
     df = df_timestamps.merge(df, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
 
-
-
-    #Backfill so each minute has the data for the next departure
+    # Backfill so each minute has the data for the next departure. Thus each
+    # row contains a minute of the day, the next arrival, and the journey time
+    # for that trip.
     df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
 
     #Add total journey time column
