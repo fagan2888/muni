@@ -380,7 +380,7 @@ def durations_to_distributions(df):
     #Join on actual stop data
     df = df_timestamps.merge(df, on=['departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
 
-    df.groupby(['departure_stop_id', 'arrival_stop_id']).count()
+
 
     #Backfill so each minute has the data for the next departure
     df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
