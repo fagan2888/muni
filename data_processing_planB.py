@@ -47,6 +47,12 @@ def load_gtfs_data(path='google_transit'):
 
 
 def create_features(df, df_gtfs):
+    df_trips = df_gtfs['trips']
+    df_routes = df_gtfs['routes']
+    df_stops = df_gtfs['stops']
+    df_stop_times = df_gtfs['stop_times']
+
+    #PROCESS INPUT DATA
     #Convert timestamps
     df['departure_time_hour'] = pd.to_datetime(df['departure_time_hour'])
 
@@ -57,6 +63,19 @@ def create_features(df, df_gtfs):
     df['dow'] = df['departure_time_hour'].dt.dayofweek
     df['hour'] = df['departure_time_hour'].dt.hour
 
+    #Create service ID (1=weekday, 2=saturday, 3=sunday)
+    df['service_id'] = 1
+    df['service_id'][df['dow'] == 5] = 2
+    df['service_id'][df['dow'] == 6] = 3
+
+    #FIND ROUTE NUMBERS
+    #Merge dataframes together to departures
+    df_trip_pairs = pickle.load(open('df_trip_pairs.pickle', 'rb'))
+    df_trip_pairs['departure_stop_id'] = ('1' +df_trip_pairs['departure_stop_id'].astype(str)).astype(int)
+    df_trip_pairs['arrival_stop_id'] = ('1' +df_trip_pairs['arrival_stop_id'].astype(str)).astype(int)
+    df = df.merge(df_trip_pairs, on=['service_id', 'departure_stop_id', 'hour', 'arrival_stop_id'], how='left')
+
+    #ADD STOP METADATA
     #Append stop metadata
     df_dep = df_gtfs['stops'].copy()
     df_dep = df_dep.add_suffix('_dep')
@@ -73,11 +92,10 @@ def create_features(df, df_gtfs):
     df['stop_dist'] = np.sqrt((df['stop_lat_dist']**2) + (df['stop_lon_dist']**2))
 
     #Drop null columns, drop string/datetime columns
-    df = df.dropna(axis='columns', how='any')
+    df = df.dropna(axis='columns', how='all')
     df = df.drop(df.select_dtypes(['object', 'datetime64[ns, US/Pacific]']), axis=1)
 
-    #Drop rows with nulls
-    df = df.dropna(axis='rows', how='any')
+    df = df.fillna(0)
 
     #Reset index
     df = df.reset_index(drop=True)
@@ -90,6 +108,7 @@ def fit_default(X, y, name, sample_flag):
     clf.fit(X, y)
 
     # Save the  model to a pickle file
+    print('Writing {} model to pickle file...'.format(name))
     if sample_flag:
         pickle.dump(clf, open('{}_sample_planB.pickle'.format(name), 'wb'))
     else:
@@ -100,11 +119,11 @@ def fit_default(X, y, name, sample_flag):
 def grid_search(X, y, name, sample_flag):
 
     # Number of trees in random forest
-    n_estimators = [int(x) for x in np.linspace(start = 200, stop = 2000, num = 10)]
+    n_estimators = [10,20]
     # Number of features to consider at every split
     max_features = ['auto', 'sqrt']
     # Maximum number of levels in tree
-    max_depth = [int(x) for x in np.linspace(10, 110, num = 11)]
+    max_depth = [10]
     max_depth.append(None)
     # Minimum number of samples required to split a node
     min_samples_split = [2, 5, 10]
