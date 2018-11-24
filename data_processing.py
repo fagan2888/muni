@@ -392,7 +392,7 @@ def durations_to_distributions(df):
     df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
 
     #Add total journey time column
-    df['total_journey_time'] = df['arrival_time_unix'] - df['departure_time_minute_unix']
+    df['total_journey_time'] = (df['arrival_time'] - df['departure_time_minute']).dt.total_seconds()
 
     #Drop NaNs (occurs at the end of the data set when we don't know when the next bus will come.)
     df = df.dropna(subset=['total_journey_time'])
