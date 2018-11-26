@@ -30,6 +30,7 @@ def get_raw(sample_flag):
     pr.close_up_shop()
     return df
 
+
 def get_distributions():
     with open('credentials.json') as json_data:
         credentials = json.load(json_data)
@@ -111,6 +112,7 @@ def create_features(df, df_gtfs):
     df = df.reset_index(drop=True)
     return df
 
+
 def fit_default(X, y, name, sample_flag):
 
     clf = RandomForestRegressor(oob_score=True)
@@ -124,6 +126,7 @@ def fit_default(X, y, name, sample_flag):
         pickle.dump(clf, open('{}.pickle'.format(name), 'wb'))
 
     return clf
+
 
 def grid_search(X, y, name, sample_flag):
 
@@ -171,51 +174,35 @@ def grid_search(X, y, name, sample_flag):
     return clf.best_estimator_
 
 
-<<<<<<< HEAD
-def raw_to_stops(df, df_gtfs):
-    #Give the GTFS dictionary dataframes aliases to avoid confusion later
-    df_stop_times = df_gtfs['stop_times']
-    df_trips = df_gtfs['trips']
-    df_routes = df_gtfs['routes']
-
-    df_offset = df_stop_times.copy()
-
-    #Calculate offset for calculating reference day
-    df_offset[['hours', 'mins', 'secs']] = df_offset['departure_time'].str.split(':', n=2, expand=True).astype(int)
-    df_offset['time'] = df_offset['hours'] + (df_offset['mins']/60) + (df_offset['secs']/(60*60))
-    df_offset['offset'] = 12 - df_offset['time']
-    df_offset = df_offset.groupby('trip_id').mean().reset_index()[['trip_id', 'offset']]
-    df_offset['offset'] = pd.to_timedelta(df_offset['offset'], unit='h')
-=======
 def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     """
-    Convert Muni API raw responses ("GPS fixes") into stop events. This is a 
-    tricky process, because successive GPS fixes may span a period of time 
+    Convert Muni API raw responses ("GPS fixes") into stop events. This is a
+    tricky process, because successive GPS fixes may span a period of time
     during which the vehicle passed more than one stop.
 
-                fix1                    fix2       
+                fix1                    fix2
     +------------+-----------------------+---------->
     +----|-----------|--------|------|--------|----->
         stop1      stop2    stop3   stop4    stop5
                       --> time
 
     Consequently, fancy interpolation is necessary.
-    
+
     Args:
-        df (DataFrame): Each row is a response from the Muni vehicle 
-            information API; (ie, a "GPS fix"). Each GPS fix has columns 
-            describing the current date and time, some information about 
-            vehicle and the route it's on, its location, and its predicted 
+        df (DataFrame): Each row is a response from the Muni vehicle
+            information API; (ie, a "GPS fix"). Each GPS fix has columns
+            describing the current date and time, some information about
+            vehicle and the route it's on, its location, and its predicted
             arrival at the next stop.
-        gtfs_fn (string): Relative name of directory containing unzipped GTFS 
-            feed. 
+        gtfs_fn (string): Relative name of directory containing unzipped GTFS
+            feed.
         timezone (string): standard time zone in which data was generated.
 
     Returns:
-        (DataFrame): Each row is a "stop passby" event, detailing an event in 
-            which a vehicle running a particular trip passed by a particular 
-            stop. Each row contains information about the service day, trip, 
-            stop, and the time of the event. 
+        (DataFrame): Each row is a "stop passby" event, detailing an event in
+            which a vehicle running a particular trip passed by a particular
+            stop. Each row contains information about the service day, trip,
+            stop, and the time of the event.
     """
 
     df = df.copy()
@@ -224,10 +211,9 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     for colname in ["recorded_time","valid_until_time",
                     "expected_arrival_time","expected_departure_time"]:
         df[colname] = pd.to_datetime( df[colname], utc=True ).dt.tz_convert(timezone)
-    
+
     # no need to convert data_frame_ref's time zone; it's just an unqualified date
     df["data_frame_ref"] = pd.to_datetime( df["data_frame_ref"] )
-
 
     df_stop_times = pd.read_csv( join( gtfs_fn, 'stop_times.txt') )
 
@@ -235,14 +221,13 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     # before 4 am, the service day is actually the day before. For example, a vehicle
     # operating at 3am on November 11 is running accordingto the November 10 schedule.
     df.loc[ df.expected_departure_time.dt.hour<4 , "data_frame_ref"] -= timedelta(days=1)
->>>>>>> brandon/brandoncodereview
 
     #Drop uneeded columns
     df = df[['data_frame_ref', 'line_ref', 'journey_ref', 'recorded_time', 'stop_point_ref']]
 
     #Rename columns to match GTFS data
-    df = df.rename(index=str, columns={"line_ref": "route_short_name", 
-                                "journey_ref": "trip_id", 
+    df = df.rename(index=str, columns={"line_ref": "route_short_name",
+                                "journey_ref": "trip_id",
                                 "stop_point_ref": "stop_id",
                                 "data_frame_ref": "schedule_date"})
 
@@ -285,13 +270,6 @@ def raw_to_stops(df, gtfs_fn, timezone="America/Los_Angeles"):
     df_stop_data = df_dates.merge(df_stop_data, how='outer')
     df_stop_data = df_stop_data.drop('key', axis=1)
 
-<<<<<<< HEAD
-    #Fix to deal with bug where pandas treats line names as ints - add some text to the route_short_name
-    df['route_short_name'] = ('Muni-'+df['route_short_name'].astype(str))
-    df_stop_data['route_short_name'] = ('Muni-'+df_stop_data['route_short_name'].astype(str))
-
-=======
->>>>>>> brandon/brandoncodereview
     #Merge dataframes together
     df = df_stop_data.merge(df, on=['schedule_date', 'trip_id', 'stop_id'], how='outer')
 
@@ -322,21 +300,21 @@ def stops_to_durations(df):
     the first and both stops are on the same trip instance.
 
     Args:
-        df (DataFrame): Contains bus pass-bys; each row contains the 
+        df (DataFrame): Contains bus pass-bys; each row contains the
         schedule_date, trip_id, stop_id, and time of the pass-by event.
 
     Returns:
         (DataFrame): Each row contains information on the journey time
-        between a pair of stops on a trip instance. The total nummber of rows 
-        returned will be k*p^2, where k is the number of trip instances and p 
+        between a pair of stops on a trip instance. The total nummber of rows
+        returned will be k*p^2, where k is the number of trip instances and p
         is the average number of stops per trip instance.
     """
 
     #Get departure and arrival stop info
     df_stops_arr = df.copy()
-    df = df.rename(index=str, columns={"stop_id": "departure_stop_id", 
+    df = df.rename(index=str, columns={"stop_id": "departure_stop_id",
                                     "stop_time": "departure_time"})
-    df_stops_arr = df_stops_arr.rename(index=str, columns={"stop_id": "arrival_stop_id", 
+    df_stops_arr = df_stops_arr.rename(index=str, columns={"stop_id": "arrival_stop_id",
                     "stop_time": "arrival_time"})
 
     #Join the two on trip ID and date
@@ -451,44 +429,9 @@ def durations_to_distributions(df, start_time):
     return df_final
 '''
 
-<<<<<<< HEAD
-def durations_to_distributions(df):
-    #Add hour and minute columns
-    df['departure_time_hour'] = df['departure_time'].dt.floor('H')
-    df['departure_time_minute'] = df['departure_time'].dt.floor('min')
-
-    #Get departure and arrival stop info
-        #Get stop pairs from data
-    df_timestamps = df.groupby(['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id']).count().reset_index()[['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id']]
-    df_timestamps['key'] = 1
-
-    #Create minutes array
-    df_minutes = pd.DataFrame(np.arange(0,60), columns=['minute'])
-    df_minutes['key'] = 1
-
-    #Combine to form base time array
-    df_timestamps = df_timestamps.merge(df_minutes)
-    del(df_minutes)
-
-    df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
-    df_timestamps['departure_time_minute_unix'] = (df_timestamps['departure_time_minute'] - pd.Timestamp("1970-01-01")) // pd.Timedelta('1s')
-
-    df_timestamps = df_timestamps[['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id', 'departure_time_minute', 'departure_time_minute_unix']]
-
-    #Sort array
-    df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
-    df_timestamps = df_timestamps.reset_index(drop=True)
-
-    #Join on actual stop data
-    df = df_timestamps.merge(df, on=['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_time_minute', 'departure_stop_id', 'arrival_stop_id'], how='left')
-    del(df_timestamps)
-
-    #Backfill so each minute has the data for the next departure
-    df = df.groupby(['route_short_name','departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
-=======
 def cartesian_product( lsts ):
     """
-    Returns Pandas DataFrame containing cartesian product of lists. This is the 
+    Returns Pandas DataFrame containing cartesian product of lists. This is the
     same as itertools.product, but faster.
     """
 
@@ -508,15 +451,17 @@ def cartesian_product( lsts ):
 
     return ret
 
+
 def epoch_seconds( timestamp_series, preserve_null=True ):
     if preserve_null:
         return (timestamp_series.dt.tz_convert("utc") - pd.Timestamp("1970-01-01", tz="utc")) // pd.Timedelta('1s')
     else:
         return timestamp_series.astype(np.int64) // 1e9
 
+
 def durations_to_distributions(df, verbose=True):
     """
-    Finds parameter estimates for the distribution of travel times for all 
+    Finds parameter estimates for the distribution of travel times for all
     sets of (start_time, route_name, origin_stop, destination_stop) present in
     the input dataframe.
 
@@ -524,8 +469,8 @@ def durations_to_distributions(df, verbose=True):
         df (DataFrame): DataFrame in format returned by `stops_to_durations`.
 
     Returns:
-        (DataFrame): Contains distribution parameters of fit beta 
-        distribution for all (start_time, route_name, origin_stop, 
+        (DataFrame): Contains distribution parameters of fit beta
+        distribution for all (start_time, route_name, origin_stop,
         destination_stop) present in `df`.
     """
 
@@ -549,7 +494,7 @@ def durations_to_distributions(df, verbose=True):
     # Get every depart/arrival/time combination and sort them so that
     # depart+arrive are adjacent and in chronological order. Then, take
     # the observed journey times, and fill in corresponding time/block rows.
-    # For example, the journey stop:3072 -> stop:3074 occurs 18 times during 
+    # For example, the journey stop:3072 -> stop:3074 occurs 18 times during
     # 2018-11-09. There are 1440 minute-rows for the pair (3072->3074) during
     # that day, of which 13 will be filled in.
     if verbose: print( "merging with observed journeys...")
@@ -563,7 +508,6 @@ def durations_to_distributions(df, verbose=True):
     # for that trip.
     if verbose: print( "backfilling time slices with next journey..." )
     df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
->>>>>>> brandon/brandoncodereview
 
     #Add total journey time column
     df['total_journey_time'] = (df['arrival_time'] - df['departure_time_minute']).dt.total_seconds()
@@ -609,12 +553,6 @@ def durations_to_distributions(df, verbose=True):
         print( f"Fitting distribution to {n_groups}ish groups" )
 
     #Calculate shape and scale parameters
-<<<<<<< HEAD
-    df = df.groupby(['schedule_date', 'route_short_name', 'departure_time_hour', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
-
-    #Split into columns
-    df[['shape', 'scale']] = df['total_journey_time'].apply(pd.Series)
-=======
     df = df.groupby(['departure_time_hour', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg([calc_distribution, "size"]).reset_index()
 
     #Split into columns
@@ -623,7 +561,6 @@ def durations_to_distributions(df, verbose=True):
 
     #Drop NAs
     df = df.dropna()
->>>>>>> brandon/brandoncodereview
 
     #Generate Target
     df['mean'] = df['shape'] * df['scale']
