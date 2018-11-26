@@ -343,7 +343,7 @@ def epoch_seconds( timestamp_series, preserve_null=True ):
     else:
         return timestamp_series.astype(np.int64) // 1e9
 
-def durations_to_distributions(df):
+def durations_to_distributions(df, verbose=True):
     """
     Finds parameter estimates for the distribution of travel times for all 
     sets of (start_time, route_name, origin_stop, destination_stop) present in
@@ -364,6 +364,7 @@ def durations_to_distributions(df):
 
     # we'll construct a dataframe with those unique combinations of origin
     # stop, destination stop, and departure time
+    if verbose: print( "finding all time slices..." )
     df_timestamps = cartesian_product( [df['departure_stop_id'].unique(),
                               df['arrival_stop_id'].unique(),
                               df['departure_time_hour'].unique(),
@@ -381,6 +382,7 @@ def durations_to_distributions(df):
     # For example, the journey stop:3072 -> stop:3074 occurs 18 times during 
     # 2018-11-09. There are 1440 minute-rows for the pair (3072->3074) during
     # that day, of which 13 will be filled in.
+    if verbose: print( "merging with observed journeys...")
     df_timestamps = df_timestamps.sort_values(['departure_stop_id', 'arrival_stop_id', 'departure_time_minute'])
     df_timestamps = df_timestamps.reset_index(drop=True)
 
@@ -389,6 +391,7 @@ def durations_to_distributions(df):
     # Backfill so each minute has the data for the next departure. Thus each
     # row contains a minute of the day, the next arrival, and the journey time
     # for that trip.
+    if verbose: print( "backfilling time slices with next journey..." )
     df = df.groupby(['departure_stop_id', 'arrival_stop_id']).apply(lambda group: group.fillna(method='bfill'))
 
     #Add total journey time column
@@ -397,24 +400,49 @@ def durations_to_distributions(df):
     #Drop NaNs (occurs at the end of the data set when we don't know when the next bus will come.)
     df = df.dropna(subset=['total_journey_time'])
 
-    def calc_distribution(x):
-        try:
-            params = st.gamma.fit(x[x > 0], floc=0)
-            shape = params[0]
-            scale = params[2]
-        except Exception as e:
-            print(e)
-            print(x)
-            shape = np.NaN
-            scale = np.NaN
-        return shape, scale
+    # Within each origin-destination pair, 'df' is now a time series of the
+    # total journey time as a function of the time. Plotted it looks like a
+    # sawtooth function, steadily decreasing at 1 minute per minute until a
+    # local minimum at the time of departure, at which point it takes the value
+    # of the vehicle's journey time to the next stop.
+
+    class CalcDistribution:
+        def __init__(self, n):
+            self.n = n
+            self.i = 0
+
+        def __call__(self, x):
+            self.i += 1
+
+            if self.i%1000==0:
+                print( "%s/%s"%(self.i, self.n) )
+
+            try:
+                params = st.gamma.fit(x[x > 0], floc=0)
+                shape = params[0]
+                scale = params[2]
+            except Exception as e:
+                print(e)
+                print(x)
+                shape = np.NaN
+                scale = np.NaN
+            return shape, scale
+
+    n_orig = df.departure_stop_id.unique().size
+    n_dest = df.arrival_stop_id.unique().size
+    n_time = df.departure_time_hour.unique().size
+    n_groups = n_orig*n_dest*n_time
+    calc_distribution = CalcDistribution(n_groups)
+
+    if verbose:
+        print( f"Fitting distribution to {n_groups}ish groups" )
 
     #Calculate shape and scale parameters
-    df = df.groupby(['departure_time_hour', 'route_short_name', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg(calc_distribution).reset_index()
+    df = df.groupby(['departure_time_hour', 'departure_stop_id', 'arrival_stop_id'])['total_journey_time'].agg([calc_distribution, "size"]).reset_index()
 
     #Split into columns
-    df[['shape', 'scale']] = df['total_journey_time'].apply(pd.Series)
-    df = df.drop('total_journey_time', axis=1)
+    df[['shape', 'scale']] = df['CalcDistribution'].apply(pd.Series)
+    df = df.drop('CalcDistribution', axis=1)
 
     #Drop NAs
     df = df.dropna()
