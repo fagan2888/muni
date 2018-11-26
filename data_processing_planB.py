@@ -3,11 +3,13 @@ import numpy as np
 import pandas as pd
 import pandas_redshift as pr
 import pickle
+import pickle_workaround as pw
+import time
 from os import listdir
 from os.path import isfile, join
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, train_test_split
+from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor, GradientBoostingRegressor
 from scipy.interpolate import interp1d
 import scipy.stats as st
 
@@ -62,7 +64,7 @@ def create_features(df, df_gtfs):
     #Generate local day of week and hour features
     df['dow'] = df['departure_time_hour'].dt.dayofweek
     df['hour'] = df['departure_time_hour'].dt.hour
-
+    '''
     #Create service ID (1=weekday, 2=saturday, 3=sunday)
     df['service_id'] = 1
     df['service_id'][df['dow'] == 5] = 2
@@ -74,7 +76,7 @@ def create_features(df, df_gtfs):
     df_trip_pairs['departure_stop_id'] = ('1' +df_trip_pairs['departure_stop_id'].astype(str)).astype(int)
     df_trip_pairs['arrival_stop_id'] = ('1' +df_trip_pairs['arrival_stop_id'].astype(str)).astype(int)
     df = df.merge(df_trip_pairs, on=['service_id', 'departure_stop_id', 'hour', 'arrival_stop_id'], how='left')
-
+    '''
     #ADD STOP METADATA
     #Append stop metadata
     df_dep = df_gtfs['stops'].copy()
@@ -85,6 +87,8 @@ def create_features(df, df_gtfs):
 
     df = df.merge(df_dep, left_on='departure_stop_id', right_on='stop_code_dep')
     df = df.merge(df_arr, left_on='arrival_stop_id', right_on='stop_code_arr')
+
+    df = df.drop(['stop_id_dep', 'stop_id_arr', 'stop_code_dep', 'stop_code_arr'], axis=1)
 
     #Calculate stop distances
     df['stop_lat_dist'] = (df['stop_lat_dep'] - df['stop_lat_arr'])
@@ -101,36 +105,49 @@ def create_features(df, df_gtfs):
     df = df.reset_index(drop=True)
     return df
 
-def fit_default(X, y, name, sample_flag):
+def fit_default(X, y, name, sample_flag, start_time):
+    print('Fitting model {} ({} secs elapsed)'.format(name, (time.time() - start_time)))
 
-    clf = RandomForestRegressor(oob_score=True)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42)
 
-    clf.fit(X, y)
+    clf = RandomForestRegressor(n_estimators=100,
+                                max_features = 'sqrt',
+                                min_samples_split=2,
+                                verbose=10,
+                                n_jobs=-1)
+    #clf = AdaBoostRegressor()
+    #clf = GradientBoostingRegressor(verbose=10)
+
+    clf.fit(X_train, y_train)
+
+    print('R^2 score = {}'.format(clf.score(X_test, y_test)))
 
     # Save the  model to a pickle file
     print('Writing {} model to pickle file...'.format(name))
     if sample_flag:
-        pickle.dump(clf, open('{}_sample_planB.pickle'.format(name), 'wb'))
+        pw.pickle_dump(clf, '{}_sample_planB.pickle'.format(name))
     else:
-        pickle.dump(clf, open('{}_planB.pickle'.format(name), 'wb'))
+        pw.pickle_dump(clf, '{}_planB.pickle'.format(name))
 
     return clf
 
-def grid_search(X, y, name, sample_flag):
+def grid_search(X, y, name, sample_flag, start_time):
+    print('Fitting model {} ({} secs elapsed)'.format(name, (time.time() - start_time)))
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42)
 
     # Number of trees in random forest
-    n_estimators = [10,20]
+    n_estimators = [50, 100, 200, 300, 400]
     # Number of features to consider at every split
-    max_features = ['auto', 'sqrt']
+    max_features = ['sqrt']
     # Maximum number of levels in tree
-    max_depth = [10]
-    max_depth.append(None)
+    max_depth = [None]
     # Minimum number of samples required to split a node
-    min_samples_split = [2, 5, 10]
+    min_samples_split =  [5]
     # Minimum number of samples required at each leaf node
-    min_samples_leaf = [1, 2, 4]
+    min_samples_leaf = [1]
     # Method of selecting samples for training each tree
-    bootstrap = [True, False]
+    bootstrap = [True]
     # Create the random grid
     random_grid = {'n_estimators': n_estimators,
                    'max_features': max_features,
@@ -139,24 +156,26 @@ def grid_search(X, y, name, sample_flag):
                    'min_samples_leaf': min_samples_leaf,
                    'bootstrap': bootstrap}
 
-    model = RandomForestRegressor(oob_score=True)
+    model = RandomForestRegressor()
 
     # Create the GridSearch model
-    gs = RandomizedSearchCV(estimator = model,
-                                param_distributions = random_grid,
-                                n_iter = 10,
+    gs = GridSearchCV(estimator = model,
+                                param_grid = random_grid,
                                 cv = 3,
                                 verbose=10,
-                                random_state=42,
                                 n_jobs = -1)
 
     # Fit the GridSearch model
-    gs.fit(X, y)
+    gs.fit(X_train, y_train)
+
+    clf = gs.best_estimator_
+
+    print('R^2 score = {}'.format(gs.score(X_test, y_test)))
 
     # Save the best model to a pickle file
     if sample_flag:
-        pickle.dump(gs.best_estimator_, open('{}_sample_planB.pickle'.format(name), 'wb'))
+        pw.pickle_dump(clf, '{}_sample_planB.pickle'.format(name))
     else:
-        pickle.dump(gs.best_estimator_, open('{}_planB.pickle'.format(name), 'wb'))
+        pw.pickle_dump(clf, '{}_planB.pickle'.format(name))
 
-    return gs, clf.best_estimator_
+    return gs, clf
