@@ -374,7 +374,6 @@ def durations_to_distributions(df, verbose=True):
     # a `departure_time_minute` column
     df_timestamps['departure_time_minute'] = df_timestamps['departure_time_hour'] + pd.to_timedelta(df_timestamps.minute, unit='m')
     df_timestamps.drop( ["departure_time_hour", "minute"], axis=1, inplace=True )
-    df_timestamps['departure_time_minute_unix'] = epoch_seconds( df_timestamps['departure_time_minute'], preserve_null=False )
 
     # Get every depart/arrival/time combination and sort them so that
     # depart+arrive are adjacent and in chronological order. Then, take
