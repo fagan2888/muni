@@ -12,6 +12,7 @@ from sklearn.model_selection import GridSearchCV, RandomizedSearchCV, train_test
 from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor, GradientBoostingRegressor
 from scipy.interpolate import interp1d
 import scipy.stats as st
+import datetime
 
 def get_distributions(sample_flag):
     with open('credentials.json') as json_data:
@@ -29,7 +30,8 @@ def get_distributions(sample_flag):
         df.to_csv('data/distributions_gamma_sample.csv', index=False)
     else:
         df = pr.redshift_to_pandas("""select departure_time_hour, departure_stop_id, arrival_stop_id, shape, scale, shape*scale as mean
-                                        from distributions_gamma""")
+                                        from distributions_gamma
+                                        where sse < 100""")
         df.to_csv('data/distributions_gamma.csv', index=False)
     pr.close_up_shop()
     return df
@@ -64,12 +66,18 @@ def create_features(df, df_gtfs):
     #Generate local day of week and hour features
     df['dow'] = df['departure_time_hour'].dt.dayofweek
     df['hour'] = df['departure_time_hour'].dt.hour
-    '''
-    #Create service ID (1=weekday, 2=saturday, 3=sunday)
+
+    df['date'] = df['departure_time_hour'].dt.date
+
+    #Set service IDs
     df['service_id'] = 1
     df['service_id'][df['dow'] == 5] = 2
     df['service_id'][df['dow'] == 6] = 3
+    df['service_id'][df['date'] == datetime.date(2018, 11, 22)] = 3
+    df['service_id'][df['date'] == datetime.date(2018, 11, 23)] = 3
 
+    df = df.drop(['date'], axis=1)
+    '''
     #FIND ROUTE NUMBERS
     #Merge dataframes together to departures
     df_trip_pairs = pickle.load(open('df_trip_pairs.pickle', 'rb'))
@@ -110,7 +118,7 @@ def fit_default(X, y, name, sample_flag, start_time):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42)
 
-    clf = RandomForestRegressor(n_estimators=100,
+    clf = RandomForestRegressor(n_estimators=10,
                                 max_features = 'sqrt',
                                 min_samples_split=2,
                                 verbose=10,
