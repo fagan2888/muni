@@ -120,6 +120,7 @@ if __name__=='__main__':
             except Exception as e:
                 print(e)
                 print('Something failed, retrying...')
+                conn.rollback()
                 time.sleep(1.0)
                 continue
         else:
