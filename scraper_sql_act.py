@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 import psycopg2
 import csv
+import traceback
 
 API_KEY = "691b2ac5-a085-4194-b877-2997a4fac382"
 
@@ -28,8 +29,8 @@ class TransitAPI(object):
 
 def trip_parser(raw_trip):
     line_ref = trip['MonitoredVehicleJourney']['LineRef']
-    recorded_time = trip['RecordedAtTime'].replace('T', ' ').replace('Z', '')
-    valid_until_time = trip['ValidUntilTime'].replace('T', ' ').replace('Z', '')
+    recorded_time = str(trip['RecordedAtTime']).replace('T', ' ').replace('Z', '')
+    valid_until_time = str(trip['ValidUntilTime']).replace('T', ' ').replace('Z', '')
     direction_ref = trip['MonitoredVehicleJourney']['DirectionRef']
     data_frame_ref = trip['MonitoredVehicleJourney']['FramedVehicleJourneyRef']['DataFrameRef']
     journey_ref = trip['MonitoredVehicleJourney']['FramedVehicleJourneyRef']['DatedVehicleJourneyRef']
@@ -40,10 +41,12 @@ def trip_parser(raw_trip):
     vehicle_lon = trip['MonitoredVehicleJourney']['VehicleLocation']['Latitude']
     vehicle_ref = trip['MonitoredVehicleJourney']['VehicleRef']
     stop_point_ref = trip['MonitoredVehicleJourney']['MonitoredCall']['StopPointRef']
-    visit_num = trip['MonitoredVehicleJourney']['MonitoredCall']['VisitNumber']
+    #visit_num = trip['MonitoredVehicleJourney']['MonitoredCall']['VisitNumber']
+    visit_num = None
     stop_point_name = trip['MonitoredVehicleJourney']['MonitoredCall']['StopPointName']
-    expected_arrival_time = trip['MonitoredVehicleJourney']['MonitoredCall']['ExpectedArrivalTime'].replace('T', ' ').replace('Z', '')
-    expected_departure_time = trip['MonitoredVehicleJourney']['MonitoredCall']['ExpectedDepartureTime'].replace('T', ' ').replace('Z', '')
+    expected_arrival_time = str(trip['MonitoredVehicleJourney']['MonitoredCall']['ExpectedArrivalTime']).replace('T', ' ').replace('Z', '')
+    expected_departure_time = str(trip['MonitoredVehicleJourney']['MonitoredCall']['ExpectedDepartureTime']).replace('T', ' ').replace('Z', '')
+
     parsed_trip = [line_ref,
                    recorded_time,
                    valid_until_time,
@@ -94,18 +97,21 @@ if __name__=='__main__':
 
                 results = []
                 for trip in trips:
-                    results.append(trip_parser(trip))
+                    try:
+                        results.append(trip_parser(trip))
+                    except:
+                        continue
                 with open("output.csv", "w") as f:
                     writer = csv.writer(f, delimiter=',', quotechar='"')
                     writer.writerows(results)
 
-                s3.meta.client.upload_file('output.csv', 'jonobate-bucket', 'output.csv')
+                s3.meta.client.upload_file('output.csv', 'ac-transit-bucket', 'output.csv')
 
                 # Execute a command
                 cur.execute('''copy vehicle_monitoring
-                from 's3://jonobate-bucket/output.csv'
+                from 's3://ac-transit-bucket/output.csv'
                 iam_role 'arn:aws:iam::614550856824:role/AWS-admin'
-                delimiter ',' ''')
+                delimiter ','  NULL AS 'None' ''')
 
                 # Make the changes to the database persistent
                 conn.commit()
@@ -118,7 +124,7 @@ if __name__=='__main__':
 
                 last_trip_count = len(trips)
             except Exception as e:
-                print(e)
+                traceback.print_exc()
                 print('Something failed, retrying...')
                 conn.rollback()
                 time.sleep(1.0)
