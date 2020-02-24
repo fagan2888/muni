@@ -378,8 +378,8 @@ def connect_to_redshift():
         credentials = json.load(json_data)
 
     #Connect to Redshift
-    pr.connect_to_redshift(dbname = 'muni',
-                        host = 'jonobate.c9xvjgh0xspr.us-east-1.redshift.amazonaws.com',
+    pr.connect_to_redshift(dbname = 'act',
+                        host = 'ac-transit.cupreqhyyagj.us-west-1.redshift.amazonaws.com',
                         port = '5439',
                         user = credentials['user'],
                         password = credentials['password'])
@@ -390,7 +390,7 @@ def connect_to_s3():
 
     pr.connect_to_s3(aws_access_key_id = credentials['aws_access_key_id'],
                 aws_secret_access_key = credentials['aws_secret_access_key'],
-                bucket = 'jonobate-bucket')
+                bucket = 'ac-transit-bucket')
 
 
 if __name__ == '__main__':
